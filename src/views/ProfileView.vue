@@ -145,7 +145,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, onMounted } from 'vue'
+import { ref, computed, watch, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { useAuthStore } from '@/stores/auth'
 import { useUiStore } from '@/stores/ui'
@@ -247,6 +247,17 @@ const cargarDatos = async () => {
     console.error('Error al cargar datos del perfil desde Firebase:', e)
   }
 }
+
+// Ejecuta la carga inmediatamente cuando la sesión de Firebase termina de resolverse
+watch(
+  () => authStore.usuarioActual,
+  (usuario) => {
+    if (usuario) {
+      cargarDatos()
+    }
+  },
+  { immediate: true },
+)
 
 onMounted(() => {
   cargarDatos()

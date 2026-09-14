@@ -106,8 +106,14 @@ onMounted(() => {
   cargarEquipo()
 })
 
-const imagenDiagrama = computed(() => {
-  return producto.value?.Imagen_Explosionada_URL || producto.value?.imagen_explosionada || null
+const imagenDiagrama = computed<string | null>(() => {
+  const raw = producto.value?.Imagen_Explosionada_URL ?? producto.value?.imagen_explosionada ?? null
+
+  if (typeof raw !== 'string') {
+    return null
+  }
+
+  return raw.trim() || null
 })
 
 const tieneKits = computed(() => {

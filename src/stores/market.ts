@@ -13,7 +13,6 @@ export const useMarketStore = defineStore('market', () => {
   const selectedProduct = ref<Producto | null>(null)
   const isModalOpen = ref<boolean>(false)
 
-  // Asigna dinámicamente las categorías obtenidas del inventario
   const setCategories = (categories: string[]) => {
     availableCategories.value = categories
   }
@@ -24,14 +23,15 @@ export const useMarketStore = defineStore('market', () => {
     if (!authStore.usuarioActual) return
 
     const uid = authStore.usuarioActual.uid
-    const idClave = String(producto.id || producto.SKU || producto.Producto).replace(
-      /[.#$/[\]]/g,
-      '_',
-    )
+    const rawId = producto.id || producto.SKU || producto.Producto || 'item_sin_id'
+    const idClave = String(rawId).replace(/[.#$/[\]]/g, '_')
+
+    // Elimina valores 'undefined' antes de enviar a Firebase Realtime Database
+    const productoLimpio = JSON.parse(JSON.stringify(producto))
 
     try {
       await set(dbRef(db, `historial/${uid}/${idClave}`), {
-        ...producto,
+        ...productoLimpio,
         vistoEn: Date.now(),
       })
     } catch (e) {
