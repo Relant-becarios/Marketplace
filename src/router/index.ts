@@ -1,5 +1,4 @@
 import { createRouter, createWebHistory } from 'vue-router'
-import ProfileView from '@/views/ProfileView.vue'
 
 const router = createRouter({
   history: createWebHistory(import.meta.env.BASE_URL),
@@ -15,19 +14,25 @@ const router = createRouter({
       component: () => import('@/views/CatalogoView.vue'),
     },
     {
+      path: '/perfil',
+      name: 'perfil',
+      component: () => import('@/views/ProfileView.vue'),
+    },
+    // RUTA DE CHECKOUT AGREGADA
+    {
+      path: '/checkout',
+      name: 'checkout',
+      component: () => import('@/views/CheckoutView.vue'),
+    },
+    {
       path: '/calculadora',
       name: 'calculadora',
       component: () => import('@/views/CalculadoraView.vue'),
     },
     {
       path: '/visor-3d',
-      name: 'visor-3d',
+      name: 'visor3d',
       component: () => import('@/views/StlView.vue'),
-    },
-    {
-      path: '/perfil',
-      name: 'perfil',
-      component: ProfileView,
     },
   ],
 })
