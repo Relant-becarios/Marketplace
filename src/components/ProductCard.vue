@@ -24,8 +24,17 @@
     <div class="card-body">
       <span class="category-badge">{{ producto.Categoría || 'General' }}</span>
       <h3 class="product-title">{{ producto.Producto }}</h3>
-      <p class="sku-text">SKU: {{ producto.SKU || 'N/A' }}</p>
 
+      <p class="sku-text">
+        SKU:
+        {{
+          producto.SKU ||
+          producto.id ||
+          producto['no_ De parte'] ||
+          producto['NO. DE PARTE'] ||
+          'N/A'
+        }}
+      </p>
       <div class="card-footer">
         <span class="price">${{ Number(producto.Precio || 0).toFixed(2) }} USD</span>
         <button class="btn-cart-add" @click.stop="agregarAlCarrito">Añadir</button>
