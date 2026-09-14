@@ -3,39 +3,66 @@
     <NavBar />
 
     <main class="checkout-content">
-      <!-- PANTALLA DE ÉXITO TRAS VOLVER DE MERCADO PAGO -->
+      <!-- BOTÓN DE VOLVER (FLECHITA) -->
+      <button class="btn-back" @click="$router.push('/catalogo')">
+        <svg
+          xmlns="http://www.w3.org/2000/svg"
+          width="20"
+          height="20"
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          stroke-width="2.5"
+          stroke-linecap="round"
+          stroke-linejoin="round"
+          class="back-icon"
+        >
+          <line x1="19" y1="12" x2="5" y2="12"></line>
+          <polyline points="12 19 5 12 12 5"></polyline>
+        </svg>
+        Volver al catálogo
+      </button>
+
+      <!-- PANTALLA DE ÉXITO TRAS CONFIRMAR LA ORDEN -->
       <div v-if="pagoExitoso" class="status-card success-card">
         <div class="status-icon">✅</div>
-        <h2>¡Pago Procesado con Éxito!</h2>
+        <h2>¡Orden Procesada con Éxito!</h2>
         <p>
-          Tu orden <strong>#REL-{{ idOrden }}</strong> ha sido confirmada.
+          Tu pedido <strong>#{{ idOrden }}</strong> ha sido confirmado y guardado en tu cuenta.
         </p>
-        <p class="status-desc">El inventario ha sido actualizado en la base de datos.</p>
-        <button class="btn-primary" @click="$router.push('/catalogo')">Volver al Catálogo</button>
+        <p class="status-desc">Pronto nos pondremos en contacto contigo para el envío.</p>
+        <button class="btn-primary" @click="$router.push('/perfil')">Ver mis pedidos</button>
       </div>
 
       <!-- PANTALLA DE ERROR / FALLO -->
-      <div v-else-if="pagoFallido" class="status-card error-card">
+      <div v-else-if="errorMensaje && !procesando" class="status-card error-card">
         <div class="status-icon">❌</div>
-        <h2>Ocurrió un problema con el pago</h2>
-        <p class="status-desc">El pago fue rechazado o cancelado. No se hizo ningún cargo.</p>
-        <button class="btn-secondary" @click="pagoFallido = false">Intentar de nuevo</button>
+        <h2>Ocurrió un problema</h2>
+        <p class="status-desc">{{ errorMensaje }}</p>
+        <button class="btn-secondary" @click="errorMensaje = ''">Intentar de nuevo</button>
       </div>
 
-      <!-- VISTA PRINCIPAL (RESUMEN Y BOTÓN DE PAGO) -->
+      <!-- VISTA PRINCIPAL (RESUMEN Y BOTÓN DE CONFIRMACIÓN) -->
       <div v-else class="checkout-grid">
         <section class="payment-section">
-          <h2>Pagar con Mercado Pago</h2>
-          <p class="mp-subtitle">Serás redirigido de forma segura a la plataforma de pago.</p>
+          <h2>Finalizar Pedido</h2>
+          <p class="mp-subtitle">Confirma tu orden para registrarla en el sistema.</p>
 
-          <div v-if="errorMensaje" class="error-banner">⚠️ {{ errorMensaje }}</div>
+          <!-- Formulario de datos básicos -->
+          <div class="user-info-box">
+            <p>
+              <strong>Cliente:</strong>
+              {{ authStore.perfil?.nombre || authStore.usuarioActual?.email || 'Usuario' }}
+            </p>
+            <p><strong>Correo:</strong> {{ authStore.usuarioActual?.email }}</p>
+          </div>
 
           <button
-            @click="generarPagoMercadoPago"
-            :disabled="procesando || cartStore.items.length === 0"
-            class="btn-mercadopago"
+            @click="procesarOrdenLocal"
+            :disabled="procesando || itemsConDetalle.length === 0"
+            class="btn-confirmar"
           >
-            {{ procesando ? 'Generando Link...' : 'PAGAR CON MERCADO PAGO' }}
+            {{ procesando ? 'Procesando orden...' : 'CONFIRMAR Y GENERAR ORDEN' }}
           </button>
         </section>
 
@@ -76,48 +103,37 @@
 
 <script setup lang="ts">
 import { ref, computed, onMounted } from 'vue'
-import { useRoute, useRouter } from 'vue-router'
 import { useCartStore } from '@/stores/cart'
+import { useAuthStore } from '@/stores/auth'
 import { fetchProductos, type Producto } from '@/api/inventory'
+import { db } from '@/firebase'
+import { ref as dbRef, set } from 'firebase/database'
 import NavBar from '@/components/NavBar.vue'
 
-const route = useRoute()
-const router = useRouter()
 const cartStore = useCartStore()
+const authStore = useAuthStore()
 
 const procesando = ref(false)
 const pagoExitoso = ref(false)
-const pagoFallido = ref(false)
 const idOrden = ref('')
 const errorMensaje = ref('')
 const productosDetalle = ref<Producto[]>([])
 
-// Base URL del API
-const URL_API = import.meta.env.VITE_API_URL || 'http://localhost:3000'
+// Expresión regular para limpiar llaves en Firebase
+const INVALID_KEY_REGEX = new RegExp('[.#$\\[\\]/]', 'g')
 
-// 1. Verificar si el usuario viene regresando de Mercado Pago
-onMounted(async () => {
+onMounted(() => {
   cargarCatalogo()
-
-  // Si en la URL viene ?status=approved, significa que ya pagó en Mercado Pago
-  if (route.query.status === 'approved') {
-    await descontarStockEnBackend() // Descontamos de Postgres
-    pagoExitoso.value = true
-    idOrden.value = String(route.query.payment_id || Math.floor(100000 + Math.random() * 900000))
-    cartStore.vaciarCarrito()
-    router.replace('/checkout') // Limpiamos la URL
-  } else if (route.query.status === 'failure') {
-    pagoFallido.value = true
-    router.replace('/checkout')
-  }
 })
 
 const cargarCatalogo = async () => {
   productosDetalle.value = await fetchProductos()
 }
 
-// 2. Mapeo detallado del carrito
+// Mapeo detallado del carrito
 const itemsConDetalle = computed(() => {
+  if (!cartStore.items) return []
+
   return cartStore.items.map((item) => {
     const targetId = String(item.id || '')
       .trim()
@@ -129,14 +145,17 @@ const itemsConDetalle = computed(() => {
       const pID = String(p.ID || '')
         .trim()
         .toLowerCase()
-      return pId === targetId || pID === targetId
+      const pSKU = String(p.SKU || '')
+        .trim()
+        .toLowerCase()
+      return pId === targetId || pID === targetId || pSKU === targetId
     })
     return {
       id: item.id,
-      cant: item.cant,
+      cant: item.cant || 1,
       nombre: prod?.Producto || item.id,
       precio: parseFloat(String(prod?.Precio || 0)) || 0,
-      imagen: prod?.Imagen_URL || prod?.imagen || `https://via.placeholder.com/60`,
+      imagen: prod?.Imagen_URL || `https://via.placeholder.com/60`,
     }
   })
 })
@@ -145,49 +164,93 @@ const totalPrecio = computed(() => {
   return itemsConDetalle.value.reduce((acc, item) => acc + item.precio * item.cant, 0)
 })
 
-// 3. Función principal para ir a Mercado Pago
-const generarPagoMercadoPago = async () => {
+// Sanitizador para Firebase (evita errores con puntos y caracteres especiales)
+const sanitizeForFirebase = (data: unknown): unknown => {
+  if (data === null || data === undefined) return null
+  if (typeof data !== 'object') return data
+  if (Array.isArray(data)) return data.map(sanitizeForFirebase)
+
+  const obj = data as Record<string, unknown>
+  const sanitized: Record<string, unknown> = {}
+
+  for (const key of Object.keys(obj)) {
+    const val = obj[key]
+    if (val !== undefined) {
+      const cleanKey = key.replace(INVALID_KEY_REGEX, '_').trim()
+      if (cleanKey !== '') {
+        sanitized[cleanKey] = sanitizeForFirebase(val)
+      }
+    }
+  }
+  return sanitized
+}
+
+// PROCESAR ORDEN EN FIREBASE Y DESCONTAR STOCK EN GOOGLE SHEETS
+const procesarOrdenLocal = async () => {
+  if (!authStore.usuarioActual) {
+    errorMensaje.value = 'Debes iniciar sesión para procesar la orden.'
+    return
+  }
+
   procesando.value = true
   errorMensaje.value = ''
 
+  const uid = authStore.usuarioActual.uid
+  const generatedId = 'ORD-' + Date.now()
+
+  const nuevaOrden = {
+    id: generatedId,
+    fecha: new Date().toLocaleDateString('es-MX'),
+    total: totalPrecio.value,
+    estado: 'En preparación',
+    items: itemsConDetalle.value.map((i) => ({
+      id: String(i.id),
+      cant: i.cant,
+      nombre: i.nombre,
+      precio: i.precio,
+    })),
+  }
+
   try {
-    const respuesta = await fetch(`${URL_API}/api/create_preference`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ items: itemsConDetalle.value }),
-    })
+    // 1. Guardar la orden en Firebase
+    const ordenLimpia = sanitizeForFirebase(nuevaOrden)
+    await set(dbRef(db, `ordenes/${uid}/${generatedId}`), ordenLimpia)
 
-    const data = await respuesta.json()
+    // 2. Descontar stock en Google Sheets
+    await descontarStockEnBackend()
 
-    if (data.init_point) {
-      // Redirigir al link seguro de Mercado Pago
-      window.location.href = data.init_point
-    } else {
-      throw new Error('No se pudo generar el link de pago.')
-    }
+    // 3. Vaciar carrito y mostrar éxito
+    cartStore.vaciarCarrito()
+    idOrden.value = generatedId
+    pagoExitoso.value = true
   } catch (error: unknown) {
-    console.error(error)
-    errorMensaje.value =
-      error instanceof Error ? error.message : 'No se pudo generar el link de pago.'
+    console.error('Error al generar la orden:', error)
+    errorMensaje.value = 'No se pudo guardar la orden. Revisa tu conexión a internet.'
   } finally {
     procesando.value = false
   }
 }
 
-// 4. Función para descontar stock (se llama automáticamente cuando regresan de MP)
+// FUNCIÓN QUE LLAMA AL WEBHOOK DE GOOGLE SHEETS
 const descontarStockEnBackend = async () => {
-  if (cartStore.items.length === 0) return
+  if (itemsConDetalle.value.length === 0) return
+
+  // URL exacta de tu Google Apps Script
+  const SCRIPT_URL =
+    'https://script.google.com/macros/s/AKfycbxo8Bk1BWaCGV8ASqSTpwjqYzzzark-mt--YhhHBXqm5Ws4CY7ja9vTv52uooKYRM78/exec'
 
   try {
-    await fetch(`${URL_API}/api/checkout`, {
+    // Usamos text/plain para evitar bloqueos de CORS en el navegador
+    await fetch(SCRIPT_URL, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: { 'Content-Type': 'text/plain;charset=utf-8' },
       body: JSON.stringify({
-        items: cartStore.items.map((item) => ({ id: item.id, cantidad: item.cant })),
+        items: itemsConDetalle.value.map((item) => ({ id: item.id, cantidad: item.cant })),
       }),
     })
+    console.log('Petición de stock enviada a Google Sheets exitosamente.')
   } catch (error) {
-    console.error('Error al descontar stock:', error)
+    console.error('Error al intentar descontar stock en Google Sheets:', error)
   }
 }
 </script>
@@ -202,10 +265,33 @@ const descontarStockEnBackend = async () => {
 .checkout-content {
   max-width: 1100px;
   margin: 0 auto;
-  padding: 40px 20px 80px 20px;
+  padding: 30px 20px 80px 20px;
 }
 
-/* GRID PRINCIPAL (PAGO IZQ, RESUMEN DER) */
+/* BOTÓN VOLVER (FLECHITA) */
+.btn-back {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  background: none;
+  border: none;
+  color: var(--text-muted, #6a737d);
+  font-size: 1rem;
+  font-weight: 700;
+  cursor: pointer;
+  margin-bottom: 25px;
+  padding: 0;
+  transition:
+    color 0.2s ease,
+    transform 0.2s ease;
+}
+
+.btn-back:hover {
+  color: var(--accent, #ff0000);
+  transform: translateX(-5px);
+}
+
+/* GRID PRINCIPAL */
 .checkout-grid {
   display: grid;
   grid-template-columns: 1.2fr 1fr;
@@ -236,10 +322,23 @@ const descontarStockEnBackend = async () => {
   margin-bottom: 25px;
 }
 
-/* BOTÓN MERCADO PAGO */
-.btn-mercadopago {
+.user-info-box {
+  background: var(--bg-input, #f8f9fa);
+  padding: 15px;
+  border-radius: 8px;
+  border: 1px solid var(--border, #e2e8f0);
+  margin-bottom: 20px;
+  font-size: 0.95rem;
+}
+
+.user-info-box p {
+  margin: 5px 0;
+}
+
+/* BOTÓN CONFIRMAR */
+.btn-confirmar {
   width: 100%;
-  background: #009ee3;
+  background: #009ee3; /* Color azul estilo pasarela, cámbialo a #ff0000 si prefieres rojo */
   color: #ffffff;
   border: none;
   padding: 16px;
@@ -252,11 +351,11 @@ const descontarStockEnBackend = async () => {
     transform 0.1s ease;
 }
 
-.btn-mercadopago:hover:not(:disabled) {
+.btn-confirmar:hover:not(:disabled) {
   background: #0084bd;
 }
 
-.btn-mercadopago:disabled {
+.btn-confirmar:disabled {
   opacity: 0.6;
   cursor: not-allowed;
 }
@@ -311,7 +410,6 @@ const descontarStockEnBackend = async () => {
   padding-bottom: 0;
 }
 
-/* CONTENEDOR Y CONTROL DE TAMAÑO DE IMAGEN */
 .item-img-wrapper {
   width: 65px;
   height: 65px;
@@ -438,7 +536,6 @@ const descontarStockEnBackend = async () => {
   opacity: 0.9;
 }
 
-/* RESPONSIVO PA RA MÓVILES */
 @media (max-width: 850px) {
   .checkout-grid {
     grid-template-columns: 1fr;
