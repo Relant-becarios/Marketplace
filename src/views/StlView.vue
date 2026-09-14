@@ -47,14 +47,28 @@
 
       <div class="canvas-container" ref="canvasContainer"></div>
     </div>
+
+    <!-- FLECHA DE REGRESO -->
+    <button class="btn-back-floating" @click="goBack" title="Volver">
+      <img src="/Flecha.png" alt="Volver" />
+    </button>
   </div>
 </template>
 
 <script setup lang="ts">
-import { ref, onBeforeUnmount } from 'vue'
+import { ref, onBeforeUnmount, watch } from 'vue'
+import { useRouter } from 'vue-router'
+import { useUiStore } from '@/stores/ui'
 import * as THREE from 'three'
 import { STLLoader } from 'three/examples/jsm/loaders/STLLoader.js'
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js'
+
+const router = useRouter()
+const uiStore = useUiStore()
+
+const goBack = () => {
+  router.back()
+}
 
 // Estado de la UI
 const fileInput = ref<HTMLInputElement | null>(null)
@@ -66,17 +80,16 @@ const isProcessing = ref(false)
 // Estado del Visor
 const wireframeMode = ref(false)
 const autoRotate = ref(false)
-const meshColor = ref('#aaaaaa')
+const meshColor = ref('#888888')
 
-// Variables de Three.js (usamos shallowRef para objetos complejos en Vue 3)
 let scene: THREE.Scene
 let camera: THREE.PerspectiveCamera
 let renderer: THREE.WebGLRenderer
 let controls: OrbitControls
 let currentMesh: THREE.Mesh | null = null
+let gridHelper: THREE.GridHelper | null = null
 let animationId: number
 
-// --- FUNCIONES DE CARGA DE ARCHIVO ---
 const triggerInput = () => fileInput.value?.click()
 
 const handleDrop = (event: DragEvent) => {
@@ -102,7 +115,6 @@ const procesarArchivo = (file: File) => {
   reader.readAsArrayBuffer(file)
   reader.onload = (e) => {
     if (e.target?.result) {
-      // Pequeño timeout para permitir que Vue dibuje la pantalla de carga
       setTimeout(() => {
         initThreeJS(e.target!.result as ArrayBuffer)
         isProcessing.value = false
@@ -111,41 +123,45 @@ const procesarArchivo = (file: File) => {
   }
 }
 
-// --- CONFIGURACIÓN DE THREE.JS ---
+const obtenerColoresTema = () => {
+  const esOscuro = uiStore.isDarkTheme
+  return {
+    bg: esOscuro ? '#0f1215' : '#f4f6f8',
+    grid1: esOscuro ? '#30363d' : '#cccccc',
+    grid2: esOscuro ? '#161b22' : '#e5e5e5',
+  }
+}
+
 const initThreeJS = (data: ArrayBuffer) => {
   if (!canvasContainer.value) return
-  canvasContainer.value.innerHTML = '' // Limpiar canvas previo si existe
+  canvasContainer.value.innerHTML = ''
 
-  // 1. Escena
+  const colores = obtenerColoresTema()
+
   scene = new THREE.Scene()
-  scene.background = new THREE.Color('#0f1215')
-  scene.fog = new THREE.Fog('#0f1215', 200, 1000) // Añade profundidad
+  scene.background = new THREE.Color(colores.bg)
+  scene.fog = new THREE.Fog(colores.bg, 200, 1000)
 
-  // 2. Cámara
   camera = new THREE.PerspectiveCamera(45, window.innerWidth / (window.innerHeight - 60), 0.1, 2000)
   camera.position.set(100, 100, 150)
 
-  // 3. Renderizador
   renderer = new THREE.WebGLRenderer({ antialias: true, alpha: false })
   renderer.setSize(window.innerWidth, window.innerHeight - 60)
-  renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2)) // Optimización pantallas retina
+  renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2))
   renderer.shadowMap.enabled = true
   renderer.shadowMap.type = THREE.PCFSoftShadowMap
   canvasContainer.value.appendChild(renderer.domElement)
 
-  // 4. Controles (Orbit)
   controls = new OrbitControls(camera, renderer.domElement)
   controls.enableDamping = true
   controls.dampingFactor = 0.05
   controls.maxDistance = 500
 
-  // 5. Suelo y Cuadrícula (Estilo Industrial)
-  const gridHelper = new THREE.GridHelper(500, 50, '#30363d', '#161b22')
+  gridHelper = new THREE.GridHelper(500, 50, colores.grid1, colores.grid2)
   gridHelper.position.y = -0.1
   scene.add(gridHelper)
 
-  // 6. Luces Realistas
-  const ambientLight = new THREE.AmbientLight(0xffffff, 0.4)
+  const ambientLight = new THREE.AmbientLight(0xffffff, 0.6)
   scene.add(ambientLight)
 
   const dirLight1 = new THREE.DirectionalLight(0xffffff, 1)
@@ -153,19 +169,17 @@ const initThreeJS = (data: ArrayBuffer) => {
   dirLight1.castShadow = true
   scene.add(dirLight1)
 
-  const dirLight2 = new THREE.DirectionalLight(0xaaccff, 0.5) // Luz de relleno azulada
+  const dirLight2 = new THREE.DirectionalLight(0xaaccff, 0.4)
   dirLight2.position.set(-100, -50, -50)
   scene.add(dirLight2)
 
-  // 7. Cargar Geometría
   try {
     const geometry = new STLLoader().parse(data)
-    geometry.computeVertexNormals() // Asegurar sombras suaves
+    geometry.computeVertexNormals()
 
-    // Material Industrial Realista
     const material = new THREE.MeshStandardMaterial({
       color: meshColor.value,
-      metalness: 0.3,
+      metalness: 0.2,
       roughness: 0.4,
     })
 
@@ -173,16 +187,14 @@ const initThreeJS = (data: ArrayBuffer) => {
     currentMesh.castShadow = true
     currentMesh.receiveShadow = true
 
-    // Centrar automáticamente la pieza en el mundo
     geometry.computeBoundingBox()
     const boundingBox = geometry.boundingBox!
     const center = new THREE.Vector3()
     boundingBox.getCenter(center)
-    currentMesh.position.set(-center.x, -boundingBox.min.y, -center.z) // Apoyar sobre la base y centrar
+    currentMesh.position.set(-center.x, -boundingBox.min.y, -center.z)
 
     scene.add(currentMesh)
 
-    // Ajustar cámara al tamaño de la pieza
     const size = new THREE.Vector3()
     boundingBox.getSize(size)
     const maxDim = Math.max(size.x, size.y, size.z)
@@ -196,10 +208,8 @@ const initThreeJS = (data: ArrayBuffer) => {
     return
   }
 
-  // Evento Resize de Ventana
   window.addEventListener('resize', onWindowResize)
 
-  // 8. Bucle de Animación
   const animate = () => {
     animationId = requestAnimationFrame(animate)
 
@@ -216,7 +226,25 @@ const initThreeJS = (data: ArrayBuffer) => {
   animate()
 }
 
-// --- HERRAMIENTAS DEL TOOLBAR ---
+watch(
+  () => uiStore.isDarkTheme,
+  () => {
+    if (scene && renderer) {
+      const colores = obtenerColoresTema()
+      scene.background = new THREE.Color(colores.bg)
+      scene.fog = new THREE.Fog(colores.bg, 200, 1000)
+
+      if (gridHelper) {
+        scene.remove(gridHelper)
+        gridHelper.geometry.dispose()
+        gridHelper = new THREE.GridHelper(500, 50, colores.grid1, colores.grid2)
+        gridHelper.position.y = -0.1
+        scene.add(gridHelper)
+      }
+    }
+  },
+)
+
 const toggleWireframe = () => {
   wireframeMode.value = !wireframeMode.value
   if (currentMesh && currentMesh.material) {
@@ -247,7 +275,6 @@ const resetCamera = () => {
   }
 }
 
-// --- LIMPIEZA Y MEMORIA (AQUÍ ESTÁ LA CORRECCIÓN) ---
 const onWindowResize = () => {
   if (!camera || !renderer) return
   camera.aspect = window.innerWidth / (window.innerHeight - 60)
@@ -259,12 +286,8 @@ const resetViewer = () => {
   if (animationId) cancelAnimationFrame(animationId)
   window.removeEventListener('resize', onWindowResize)
 
-  // 1. Destruir eventos del mouse para evitar leaks
-  if (controls) {
-    controls.dispose()
-  }
+  if (controls) controls.dispose()
 
-  // 2. Limpiar memoria de la geometría y material en RAM
   if (currentMesh) {
     scene.remove(currentMesh)
     currentMesh.geometry.dispose()
@@ -272,7 +295,6 @@ const resetViewer = () => {
     currentMesh = null
   }
 
-  // 3. Forzar al navegador a limpiar WebGL de la GPU
   if (renderer) {
     renderer.forceContextLoss()
     renderer.dispose()
@@ -292,53 +314,63 @@ onBeforeUnmount(() => {
 <style scoped>
 .stl-view-container {
   width: 100%;
-  height: calc(100vh - 60px); /* Resta el alto aprox del navbar */
-  background: #0f1215;
+  height: calc(100vh - 60px);
+  background: var(--bg-main, #f4f6f8);
+  color: var(--text-main, #1c1e21);
   position: relative;
   display: flex;
   align-items: center;
   justify-content: center;
   overflow: hidden;
+  transition:
+    background 0.3s ease,
+    color 0.3s ease;
 }
 
-/* --- ESTILOS DEL DROPZONE --- */
 .stl-dropzone {
   width: 80%;
   max-width: 800px;
   height: 60%;
-  border: 3px dashed #30363d;
+  border: 3px dashed var(--border, #d1d5da);
   display: flex;
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  background: var(--bg-panel);
+  background: var(--bg-panel, #ffffff);
   border-radius: 20px;
   transition: all 0.3s ease;
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.08);
 }
+
 .stl-dropzone.drag-active {
   border-color: #ff0000;
   background: rgba(255, 0, 0, 0.05);
   transform: scale(1.02);
 }
+
 .dropzone-content {
   text-align: center;
 }
+
 .drop-title {
   color: #ff0000;
   letter-spacing: 2px;
   margin-bottom: 10px;
   font-weight: 900;
 }
+
 .drop-desc {
-  color: #8b949e;
+  color: var(--text-muted, #6a737d);
   font-size: 16px;
   margin-bottom: 20px;
 }
+
 .drop-divider {
-  color: #30363d;
+  color: var(--border, #d1d5da);
   margin: 20px 0;
   font-weight: bold;
 }
+
 .btn-upload {
   padding: 15px 40px;
   background: #ff0000;
@@ -351,17 +383,18 @@ onBeforeUnmount(() => {
   transition: 0.3s;
   letter-spacing: 1px;
 }
+
 .btn-upload:hover {
   background: #cc0000;
   box-shadow: 0 5px 15px rgba(255, 0, 0, 0.3);
 }
 
-/* --- ESTILOS DEL VISOR Y TOOLBAR --- */
 .canvas-wrapper {
   width: 100%;
   height: 100%;
   position: relative;
 }
+
 .canvas-container {
   width: 100%;
   height: 100%;
@@ -373,21 +406,21 @@ onBeforeUnmount(() => {
   bottom: 30px;
   left: 50%;
   transform: translateX(-50%);
-  background: rgba(22, 27, 34, 0.85);
+  background: var(--bg-panel, #ffffff);
   backdrop-filter: blur(10px);
   padding: 10px 20px;
   border-radius: 30px;
-  border: 1px solid #30363d;
+  border: 1px solid var(--border, #d1d5da);
   display: flex;
   gap: 15px;
   align-items: center;
   z-index: 1000;
-  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.5);
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.15);
 }
 
 .tool-btn {
   background: transparent;
-  color: #fff;
+  color: var(--text-main, #1c1e21);
   border: 1px solid transparent;
   padding: 8px 15px;
   border-radius: 20px;
@@ -399,17 +432,21 @@ onBeforeUnmount(() => {
   align-items: center;
   gap: 5px;
 }
+
 .tool-btn:hover {
-  background: rgba(255, 255, 255, 0.1);
+  background: var(--bg-input, #eef2f5);
 }
+
 .tool-btn.active {
   background: #ff0000;
   color: white;
   border-color: #ff0000;
 }
+
 .tool-btn.danger {
   color: #ff4444;
 }
+
 .tool-btn.danger:hover {
   background: rgba(255, 68, 68, 0.1);
 }
@@ -417,13 +454,14 @@ onBeforeUnmount(() => {
 .separator {
   width: 1px;
   height: 20px;
-  background: #30363d;
+  background: var(--border, #d1d5da);
 }
 
 .color-picker-wrapper {
   position: relative;
   overflow: hidden;
 }
+
 .color-picker {
   opacity: 0;
   position: absolute;
@@ -434,30 +472,31 @@ onBeforeUnmount(() => {
   cursor: pointer;
 }
 
-/* --- PANTALLA DE CARGA --- */
 .processing-overlay {
   position: absolute;
   top: 0;
   left: 0;
   width: 100%;
   height: 100%;
-  background: rgba(15, 18, 21, 0.9);
+  background: var(--bg-main, rgba(15, 18, 21, 0.9));
   z-index: 500;
   display: flex;
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  color: white;
+  color: var(--text-main);
 }
+
 .spinner {
   width: 50px;
   height: 50px;
-  border: 4px solid #30363d;
+  border: 4px solid var(--border, #30363d);
   border-top: 4px solid #ff0000;
   border-radius: 50%;
   animation: spin 1s linear infinite;
   margin-bottom: 15px;
 }
+
 @keyframes spin {
   0% {
     transform: rotate(0deg);
@@ -465,5 +504,33 @@ onBeforeUnmount(() => {
   100% {
     transform: rotate(360deg);
   }
+}
+
+.btn-back-floating {
+  position: fixed;
+  bottom: 25px;
+  left: 25px;
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  z-index: 20000;
+  padding: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition:
+    transform 0.2s ease,
+    opacity 0.2s ease;
+}
+
+.btn-back-floating:hover {
+  transform: scale(1.15);
+  opacity: 0.85;
+}
+
+.btn-back-floating img {
+  width: 45px;
+  height: 45px;
+  object-fit: contain;
 }
 </style>

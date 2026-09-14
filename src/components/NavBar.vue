@@ -1,22 +1,21 @@
 <template>
   <nav class="navbar">
     <router-link to="/" @click="limpiarInicio" style="text-decoration: none">
-      <h1 class="logo-nav">RELANT</h1>
+      <!-- LOGOTIPO EN IMAGEN -->
+      <img src="/LOGOTIPO RELANT CON LOGO 242 (1).png" alt="RELANT Logo" class="logo-nav-img" />
     </router-link>
 
-    <!-- Barra de búsqueda: SOLO SE MUESTRA EN EL CATÁLOGO -->
+    <!-- BARRA DE BÚSQUEDA Y DROPDOWN -->
     <div class="search-container" v-if="mostrarFunciones">
       <div class="dropdown">
-        <button class="btn-cat" @click.stop="showCats = !showCats">
-          <span>{{ marketStore.selectedCategory }}</span> ▼
+        <button type="button" class="btn-cat" @click.stop="showCats = !showCats">
+          <span class="cat-text">{{ marketStore.selectedCategory }}</span>
+          <span class="arrow">▼</span>
         </button>
-        <div class="dropdown-content" :class="{ show: showCats }">
-          <a @click.stop="seleccionarCat('Todas')">Todas</a>
-          <a
-            v-for="cat in marketStore.availableCategories"
-            :key="cat"
-            @click.stop="seleccionarCat(cat)"
-          >
+
+        <div class="dropdown-content" :class="{ show: showCats }" @click.stop>
+          <a @click="seleccionarCat('Todas')">Todas</a>
+          <a v-for="cat in marketStore.availableCategories" :key="cat" @click="seleccionarCat(cat)">
             {{ cat }}
           </a>
         </div>
@@ -31,22 +30,37 @@
       />
     </div>
 
-    <!-- Espaciador invisible cuando no hay barra de búsqueda -->
     <div v-else style="flex-grow: 1"></div>
 
     <div class="nav-actions">
-      <!-- Usuario autenticado / Botón de ingreso -->
-      <span v-if="authStore.usuarioActual" class="user-email">
-        {{ authStore.usuarioActual.email?.split('@')[0] }}
-      </span>
+      <!-- BOTÓN MI PERFIL -->
+      <router-link
+        v-if="authStore.usuarioActual"
+        to="/perfil"
+        class="btn-profile"
+        title="Ir a Mi Perfil"
+      >
+        <svg
+          width="18"
+          height="18"
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          stroke-width="2"
+          stroke-linecap="round"
+          stroke-linejoin="round"
+        >
+          <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"></path>
+          <circle cx="12" cy="7" r="4"></circle>
+        </svg>
+        <span>Mi Perfil</span>
+      </router-link>
+
       <div v-else class="login-trigger" @click.stop="uiStore.toggleAuthModal">Ingresar</div>
 
-      <!-- ACCIONES EXCLUSIVAS DEL CATÁLOGO -->
+      <!-- ACCIONES DEL CATÁLOGO -->
       <div class="catalog-only-actions" v-if="mostrarFunciones">
-        <!-- Botón AI -->
-        <div class="btn-ai" @click.stop="uiStore.toggleChat" title="Asistente AI">✨ AI</div>
-
-        <!-- Botón Carrito -->
+        <!-- Carrito -->
         <div class="cart-icon" @click.stop="uiStore.toggleCart" title="Carrito de Compras">
           <svg
             width="24"
@@ -71,7 +85,7 @@
         </div>
       </div>
 
-      <!-- BOTÓN DE APAGADO (UBICADO AL EXTREMO DERECHO) -->
+      <!-- BOTÓN SALIR -->
       <button
         v-if="authStore.usuarioActual"
         class="btn-logout"
@@ -99,7 +113,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed } from 'vue'
+import { ref, computed, onMounted, onUnmounted } from 'vue'
 import { useRoute } from 'vue-router'
 import { useCartStore } from '@/stores/cart'
 import { useMarketStore } from '@/stores/market'
@@ -133,6 +147,18 @@ const limpiarInicio = () => {
   marketStore.selectedCategory = 'Todas'
   emit('buscar')
 }
+
+const cerrarMenuFuera = () => {
+  showCats.value = false
+}
+
+onMounted(() => {
+  window.addEventListener('click', cerrarMenuFuera)
+})
+
+onUnmounted(() => {
+  window.removeEventListener('click', cerrarMenuFuera)
+})
 </script>
 
 <style scoped>
@@ -141,122 +167,148 @@ const limpiarInicio = () => {
   align-items: center;
   justify-content: space-between;
   padding: 10px 5%;
-  background: var(--bg-panel);
-  border-bottom: 1px solid var(--border);
+  background: var(--bg-panel, #ffffff);
+  border-bottom: 1px solid var(--border, #d1d5da);
   position: sticky;
   top: 0;
   z-index: 100;
-  color: var(--text-main);
+  color: var(--text-main, #1c1e21);
+  transition:
+    background 0.3s ease,
+    border-color 0.3s ease,
+    color 0.3s ease;
 }
-.logo-nav {
-  font-size: 26px;
-  font-weight: 900;
-  color: #ff0000;
+
+.logo-nav-img {
+  height: 35px;
+  width: auto;
+  object-fit: contain;
   cursor: pointer;
-  letter-spacing: 2px;
-  text-transform: uppercase;
-  margin: 0;
+  display: block;
 }
+
 .search-container {
   display: flex;
-  flex-grow: 1;
-  max-width: 550px;
-  margin: 0 20px;
-  background: var(--bg-input);
-  border: 1px solid var(--border);
-  border-radius: 25px;
-  position: relative;
   align-items: center;
+  flex-grow: 1;
+  max-width: 580px;
+  height: 42px;
+  margin: 0 20px;
+  background: var(--bg-input, #eef2f5);
+  border: 1px solid var(--border, #d1d5da);
+  border-radius: 22px;
+  position: relative;
 }
+
 .dropdown {
   position: relative;
+  display: flex;
+  align-items: center;
+  height: 100%;
 }
+
 .btn-cat {
   background: #ff0000;
-  color: white;
+  color: #ffffff;
   border: none;
-  padding: 10px 20px;
-  font-weight: bold;
+  padding: 0 16px;
+  font-weight: 800;
   cursor: pointer;
   font-size: 13px;
-  border-radius: 25px 0 0 25px;
-  min-width: 120px;
-  outline: none;
   height: 100%;
   display: flex;
   align-items: center;
   justify-content: space-between;
+  gap: 8px;
+  min-width: 110px;
+  outline: none;
+  border-radius: 21px 0 0 21px;
+  transition: background 0.2s ease;
 }
+
+.btn-cat:hover {
+  background: #d32f2f;
+}
+
+.cat-text {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 110px;
+}
+
+.arrow {
+  font-size: 10px;
+}
+
 .search-input {
   flex-grow: 1;
   border: none;
   background: transparent;
-  color: var(--text-main);
-  padding: 12px 15px;
+  color: inherit;
+  padding: 0 18px;
   outline: none;
   font-size: 14px;
+  height: 100%;
   width: 100%;
-  border-radius: 0 25px 25px 0;
+  border-radius: 0 21px 21px 0;
 }
+
 .dropdown-content {
   display: none;
   position: absolute;
-  background: var(--bg-panel);
+  background: var(--bg-panel, #ffffff);
   min-width: 220px;
-  box-shadow: 0 8px 16px rgba(0, 0, 0, 0.3);
-  z-index: 20000;
-  border: 1px solid var(--border);
+  box-shadow: 0 10px 25px rgba(0, 0, 0, 0.25);
+  z-index: 99999;
+  border: 1px solid var(--border, #d1d5da);
   border-radius: 8px;
-  top: 100%;
+  top: calc(100% + 6px);
   left: 0;
-  margin-top: 5px;
   max-height: 300px;
   overflow-y: auto;
 }
+
 .dropdown-content.show {
   display: block;
 }
+
 .dropdown-content a {
-  color: var(--text-main);
+  color: inherit;
   padding: 12px 16px;
   text-decoration: none;
   display: block;
   cursor: pointer;
   font-size: 14px;
-  border-bottom: 1px solid var(--border);
+  border-bottom: 1px solid var(--border, #d1d5da);
 }
+
 .dropdown-content a:hover {
   background: #ff0000;
   color: white;
 }
+
 .nav-actions {
   display: flex;
   align-items: center;
   gap: 20px;
 }
+
 .catalog-only-actions {
   display: flex;
   align-items: center;
   gap: 20px;
-  color: var(--text-main);
+  color: inherit;
 }
-.btn-ai {
-  cursor: pointer;
-  font-size: 14px;
-  font-weight: 900;
-  color: var(--text-main);
-  transition: opacity 0.2s;
-}
-.btn-ai:hover {
-  opacity: 0.8;
-}
+
 .cart-icon {
   position: relative;
   cursor: pointer;
   display: flex;
   align-items: center;
-  color: var(--text-main);
+  color: inherit;
 }
+
 .cart-badge {
   position: absolute;
   top: -8px;
@@ -272,6 +324,7 @@ const limpiarInicio = () => {
   justify-content: center;
   font-weight: bold;
 }
+
 .icon-hamburguesa {
   width: 26px;
   height: 18px;
@@ -279,8 +332,9 @@ const limpiarInicio = () => {
   flex-direction: column;
   justify-content: space-between;
   cursor: pointer;
-  color: var(--text-main);
+  color: inherit;
 }
+
 .icon-hamburguesa span {
   display: block;
   width: 100%;
@@ -289,29 +343,46 @@ const limpiarInicio = () => {
   border-radius: 2px;
   transition: 0.3s;
 }
+
 .login-trigger {
   cursor: pointer;
   font-size: 14px;
   font-weight: bold;
-  color: var(--text-main);
-  background: var(--bg-input);
-  border: 1px solid var(--border);
+  color: inherit;
+  background: var(--bg-input, #eef2f5);
+  border: 1px solid var(--border, #d1d5da);
   padding: 6px 14px;
   border-radius: 20px;
   transition: all 0.2s ease;
 }
+
 .login-trigger:hover {
   background: #ff0000;
   color: white;
   border-color: #ff0000;
 }
-.user-email {
+
+.btn-profile {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  text-decoration: none;
+  color: inherit;
   font-size: 13px;
-  color: var(--text-muted);
-  font-weight: bold;
+  font-weight: 800;
+  padding: 6px 14px;
+  border-radius: 20px;
+  background: var(--bg-input, #eef2f5);
+  border: 1px solid var(--border, #d1d5da);
+  transition: all 0.2s ease;
 }
 
-/* BOTÓN DE SALIR (EXTREMO DERECHO) */
+.btn-profile:hover {
+  background: #ff0000;
+  color: #ffffff;
+  border-color: #ff0000;
+}
+
 .btn-logout {
   background: transparent;
   border: none;
@@ -326,17 +397,57 @@ const limpiarInicio = () => {
     transform 0.2s ease,
     opacity 0.2s ease;
 }
+
 .btn-logout:hover {
   transform: scale(1.1);
   opacity: 0.85;
 }
+
 .power-icon {
   stroke: #ff0000;
 }
+
 .logout-text {
   color: #ff0000;
   font-size: 11px;
   font-weight: 800;
   line-height: 1;
+}
+
+/* --- ESTILOS EXCLUSIVOS EN MODO OSCURO PARA NAVBAR --- */
+:global([data-theme='dark']) .navbar {
+  background: #181b1f;
+  border-bottom-color: #30363d;
+  color: #ffffff;
+}
+
+:global([data-theme='dark']) .search-container {
+  background: #22262b;
+  border-color: #30363d;
+}
+
+:global([data-theme='dark']) .search-input {
+  color: #ffffff;
+}
+
+:global([data-theme='dark']) .search-input::placeholder {
+  color: #a0a6ac;
+}
+
+:global([data-theme='dark']) .btn-profile,
+:global([data-theme='dark']) .login-trigger {
+  background: #22262b;
+  color: #ffffff;
+  border-color: #30363d;
+}
+
+:global([data-theme='dark']) .dropdown-content {
+  background: #181b1f;
+  border-color: #30363d;
+}
+
+:global([data-theme='dark']) .dropdown-content a {
+  color: #ffffff;
+  border-bottom-color: #30363d;
 }
 </style>

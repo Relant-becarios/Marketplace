@@ -1,8 +1,5 @@
 import { createRouter, createWebHistory } from 'vue-router'
-import HomeView from '../views/HomeView.vue'
-import StlView from '../views/StlView.vue'
-import CalculadoraView from '../views/CalculadoraView.vue'
-import MaquinaView from '../views/MaquinaView.vue'
+import ProfileView from '@/views/ProfileView.vue'
 
 const router = createRouter({
   history: createWebHistory(import.meta.env.BASE_URL),
@@ -10,38 +7,27 @@ const router = createRouter({
     {
       path: '/',
       name: 'home',
-      component: HomeView,
+      component: () => import('@/views/HomeView.vue'),
     },
     {
       path: '/catalogo',
       name: 'catalogo',
-      component: () => import('../views/CatalogoView.vue'),
-    },
-    {
-      // NUEVA RUTA DINÁMICA PARA MÚLTIPLES MÁQUINAS
-      path: '/maquina/:id',
-      name: 'maquina',
-      component: MaquinaView,
-    },
-    {
-      path: '/checkout',
-      name: 'checkout',
-      component: () => import('@/views/CheckoutView.vue'),
-    },
-    {
-      path: '/stl',
-      name: 'stl',
-      component: StlView,
+      component: () => import('@/views/CatalogoView.vue'),
     },
     {
       path: '/calculadora',
       name: 'calculadora',
-      component: CalculadoraView,
+      component: () => import('@/views/CalculadoraView.vue'),
     },
     {
-      path: '/refacciones/:id',
-      name: 'refacciones',
-      component: () => import('../views/RefaccionesView.vue'),
+      path: '/visor-3d',
+      name: 'visor-3d',
+      component: () => import('@/views/StlView.vue'),
+    },
+    {
+      path: '/perfil',
+      name: 'perfil',
+      component: ProfileView,
     },
   ],
 })

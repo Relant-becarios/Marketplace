@@ -1,5 +1,5 @@
 import { defineStore } from 'pinia'
-import { ref } from 'vue'
+import { ref, computed } from 'vue'
 
 export const useUiStore = defineStore('ui', () => {
   const isCartOpen = ref(false)
@@ -7,17 +7,30 @@ export const useUiStore = defineStore('ui', () => {
   const isAuthModalOpen = ref(false)
   const isChatOpen = ref(false)
 
-  // LÓGICA DE TEMAS
-  // Lee de localStorage o usa 'dark' por defecto
-  const temaActual = ref(localStorage.getItem('tema') || 'dark')
-  // Aplica el tema al cargar
-  document.documentElement.setAttribute('data-theme', temaActual.value)
+  // LÓGICA DE TEMAS PERSISTENTE
+  // Lee de localStorage o usa 'light' por defecto
+  const temaActual = ref(localStorage.getItem('tema') || 'light')
+
+  const aplicarTemaDOM = (tema: string) => {
+    document.documentElement.setAttribute('data-theme', tema)
+    if (tema === 'dark') {
+      document.documentElement.classList.add('dark')
+    } else {
+      document.documentElement.classList.remove('dark')
+    }
+  }
+
+  // Aplica el tema guardado al cargar
+  aplicarTemaDOM(temaActual.value)
 
   function toggleTema() {
     temaActual.value = temaActual.value === 'dark' ? 'light' : 'dark'
-    document.documentElement.setAttribute('data-theme', temaActual.value)
+    aplicarTemaDOM(temaActual.value)
     localStorage.setItem('tema', temaActual.value)
   }
+
+  // Computed reactivo para vistas que requieren conocer si el tema activo es oscuro
+  const isDarkTheme = computed(() => temaActual.value === 'dark')
 
   function toggleCart() {
     isCartOpen.value = !isCartOpen.value
@@ -68,6 +81,7 @@ export const useUiStore = defineStore('ui', () => {
     isAuthModalOpen,
     isChatOpen,
     temaActual,
+    isDarkTheme,
     toggleCart,
     toggleMenu,
     toggleAuthModal,

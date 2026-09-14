@@ -1,54 +1,105 @@
 import { defineStore } from 'pinia'
-import { ref as vueRef } from 'vue'
-import { auth } from '@/firebase'
+import { ref } from 'vue'
+import { auth, db } from '@/firebase'
 import {
-  createUserWithEmailAndPassword,
   signInWithEmailAndPassword,
+  createUserWithEmailAndPassword,
   signOut,
   onAuthStateChanged,
+  GoogleAuthProvider,
+  signInWithPopup,
+  updateProfile,
   type User,
 } from 'firebase/auth'
+import { ref as dbRef, set, get } from 'firebase/database'
 
-export interface UsuarioConRol extends User {
-  rol?: string
+export interface PerfilUsuario {
+  uid: string
+  email: string
+  nombre: string
+  apellidos: string
 }
 
 export const useAuthStore = defineStore('auth', () => {
-  const usuarioActual = vueRef<UsuarioConRol | null>(null)
-  const cargando = vueRef(true)
+  const usuarioActual = ref<User | null>(null)
+  const perfil = ref<PerfilUsuario | null>(null)
 
-  onAuthStateChanged(auth, (user) => {
+  // Escuchar estado de sesión y cargar perfil
+  onAuthStateChanged(auth, async (user) => {
+    usuarioActual.value = user
     if (user) {
-      let rolAsignado = 'CLIENTE' // Por defecto, todos son clientes
-
-      // 👇 EL TRUCO: Si el correo es el tuyo, te damos poder absoluto
-      if (user.email === 'relantbecario@relant.com.mx') {
-        rolAsignado = 'ADMIN'
-      }
-      // Si tienes otro correo de jefe, puedes agregarlo así:
-      // else if (user.email === 'siza@relant.com.mx') { rolAsignado = 'ADMIN' }
-
-      usuarioActual.value = {
-        ...user,
-        rol: rolAsignado,
-      } as UsuarioConRol
+      await cargarPerfil(user.uid)
     } else {
-      usuarioActual.value = null
+      perfil.value = null
     }
-    cargando.value = false
   })
 
+  const cargarPerfil = async (uid: string) => {
+    try {
+      const snap = await get(dbRef(db, `usuarios/${uid}`))
+      if (snap.exists()) {
+        perfil.value = snap.val()
+      }
+    } catch (e) {
+      console.error('Error cargando perfil:', e)
+    }
+  }
+
+  // Registrar con Nombre y Apellidos
+  const registrar = async (email: string, pass: string, nombre: string, apellidos: string) => {
+    const res = await createUserWithEmailAndPassword(auth, email, pass)
+    const nombreCompleto = `${nombre} ${apellidos}`.trim()
+    await updateProfile(res.user, { displayName: nombreCompleto })
+
+    const datosPerfil: PerfilUsuario = {
+      uid: res.user.uid,
+      email,
+      nombre,
+      apellidos,
+    }
+
+    await set(dbRef(db, `usuarios/${res.user.uid}`), datosPerfil)
+    perfil.value = datosPerfil
+  }
+
+  // Iniciar sesión con Correo y Contraseña
   const iniciarSesion = async (email: string, pass: string) => {
     await signInWithEmailAndPassword(auth, email, pass)
   }
 
-  const registrarse = async (email: string, pass: string) => {
-    await createUserWithEmailAndPassword(auth, email, pass)
+  // Iniciar sesión / Registro con Google
+  const iniciarConGoogle = async () => {
+    const provider = new GoogleAuthProvider()
+    const res = await signInWithPopup(auth, provider)
+
+    // Si el usuario no tiene registro en RTDB, guardamos sus datos
+    const snap = await get(dbRef(db, `usuarios/${res.user.uid}`))
+    if (!snap.exists()) {
+      const partesNombre = (res.user.displayName || '').split(' ')
+      const nombre = partesNombre[0] || 'Usuario'
+      const apellidos = partesNombre.slice(1).join(' ') || ''
+
+      const datosPerfil: PerfilUsuario = {
+        uid: res.user.uid,
+        email: res.user.email || '',
+        nombre,
+        apellidos,
+      }
+      await set(dbRef(db, `usuarios/${res.user.uid}`), datosPerfil)
+      perfil.value = datosPerfil
+    }
   }
 
   const cerrarSesion = async () => {
     await signOut(auth)
   }
 
-  return { usuarioActual, cargando, iniciarSesion, registrarse, cerrarSesion }
+  return {
+    usuarioActual,
+    perfil,
+    registrar,
+    iniciarSesion,
+    iniciarConGoogle,
+    cerrarSesion,
+  }
 })

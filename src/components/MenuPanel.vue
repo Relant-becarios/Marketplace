@@ -1,10 +1,37 @@
 <template>
-  <div :class="['menu-panel', { open: uiStore.isMenuOpen }]">
-    <div class="close-menu-btn" @click="uiStore.toggleMenu">✕</div>
-    <h2 class="menu-title">MENÚ</h2>
-    <div class="menu-link" @click="navegarA('/')">🏠 Inicio</div>
-    <div class="menu-link" @click="navegarA('/stl')">🧊 Visor STL 3D</div>
-    <div class="menu-link" @click="navegarA('/calculadora')">🧮 Calculadora de Dosificación</div>
+  <div v-if="uiStore.isMenuOpen" class="menu-overlay" @click="uiStore.toggleMenu">
+    <div class="menu-drawer" @click.stop>
+      <div class="menu-header">
+        <h3>Menú</h3>
+        <span class="close-btn" @click="uiStore.toggleMenu">✕</span>
+      </div>
+
+      <ul class="menu-list">
+        <!-- ÍTEM DE LA IA CON ICONO DE ESTRELLA PERSONALIZADO -->
+        <li class="menu-item ai-item" @click="abrirAsistenteAI">
+          <img src="/Estrella icono (1).png" class="menu-icon-img" alt="Asistente IA" />
+          <span>Asistente IA</span>
+        </li>
+
+        <!-- CATÁLOGO DE PRODUCTOS -->
+        <li class="menu-item" @click="navegarA('/catalogo')">
+          <span class="icon">📦</span>
+          <span>Catálogo de Productos</span>
+        </li>
+
+        <!-- CALCULADORA DE DOSIFICACIÓN -->
+        <li class="menu-item" @click="navegarA('/calculadora')">
+          <span class="icon">🧮</span>
+          <span>Calculadora de Dosificación</span>
+        </li>
+
+        <!-- VISOR STL 3D -->
+        <li class="menu-item" @click="navegarA('/visor-3d')">
+          <span class="icon">🧊</span>
+          <span>Visor STL 3D</span>
+        </li>
+      </ul>
+    </div>
   </div>
 </template>
 
@@ -15,58 +42,88 @@ import { useRouter } from 'vue-router'
 const uiStore = useUiStore()
 const router = useRouter()
 
+const abrirAsistenteAI = () => {
+  uiStore.toggleMenu()
+  uiStore.toggleChat()
+}
+
 const navegarA = (ruta: string) => {
-  uiStore.closeAll() // Cierra el menú al cambiar de pantalla
+  uiStore.toggleMenu()
   router.push(ruta)
 }
 </script>
 
 <style scoped>
-.menu-panel {
+.menu-overlay {
   position: fixed;
   top: 0;
-  right: -320px;
-  width: 300px;
+  left: 0;
+  width: 100vw;
   height: 100vh;
-  background: var(--bg-panel);
+  background: rgba(0, 0, 0, 0.6);
   z-index: 25000;
-  transition: 0.4s ease;
-  border-left: 2px solid var(--accent);
-  padding: 25px;
+  display: flex;
+  justify-content: flex-end;
+}
+.menu-drawer {
+  background: var(--bg-panel, #ffffff);
+  width: 280px;
+  height: 100%;
+  padding: 20px;
   box-sizing: border-box;
-  color: var(--text-main); /* usar variable para que cambie con el tema */
+  color: var(--text-main);
 }
-.menu-panel.open {
-  right: 0;
+.menu-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  border-bottom: 1px solid var(--border);
+  padding-bottom: 15px;
+  margin-bottom: 15px;
 }
-.close-menu-btn {
-  text-align: right;
+.close-btn {
   cursor: pointer;
-  font-size: 28px;
-  margin-bottom: 10px;
+  font-size: 18px;
 }
-.menu-title {
-  color: var(--accent); /* usar variable de acento */
-  margin-bottom: 25px;
-  letter-spacing: 2px;
-  font-weight: bold;
+
+.menu-list {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
 }
-.menu-link {
+.menu-item {
   display: flex;
   align-items: center;
-  gap: 15px;
-  padding: 18px 10px;
-  color: var(--text-main); /* usar variable para respetar tema */
-  text-decoration: none;
-  font-size: 17px;
-  font-weight: bold;
-  border-bottom: 1px solid var(--border);
+  gap: 12px;
+  padding: 12px 15px;
+  border-radius: 8px;
   cursor: pointer;
-  transition: 0.3s;
+  font-weight: 700;
+  font-size: 0.95rem;
+  background: var(--bg-input);
+  transition: background 0.2s ease;
 }
-.menu-link:hover {
-  background: rgba(255, 0, 0, 0.1);
-  color: var(--accent);
-  padding-left: 20px;
+.menu-item:hover {
+  background: var(--border);
+}
+
+.ai-item {
+  background: rgba(255, 0, 0, 0.08);
+  color: #ff0000;
+  border: 1px solid rgba(255, 0, 0, 0.2);
+}
+.ai-item:hover {
+  background: #ff0000;
+  color: #ffffff;
+}
+
+/* ESTILO PARA LA IMAGEN DEL ICONO DE LA IA */
+.menu-icon-img {
+  width: 20px;
+  height: 20px;
+  object-fit: contain;
 }
 </style>

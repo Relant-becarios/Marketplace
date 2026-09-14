@@ -7,16 +7,17 @@
       <p class="hero-subtitle">The Simplicity of an innovative solution</p>
     </header>
 
-    <div class="marquee-section" v-if="!cargando && productos.length">
+    <!-- CARRUSEL SIEMPRE MUESTRA TODOS LOS PRODUCTOS SIN FILTRAR -->
+    <div class="marquee-section" v-if="productosCarrusel.length">
       <div class="marquee-track">
         <div
-          v-for="(p, index) in productos.slice(0, 10)"
+          v-for="(p, index) in productosCarrusel.slice(0, 15)"
           :key="p?.id || p?.ID || index"
           class="m-item"
           @click="marketStore.openModal(p)"
         >
           <img :src="p.Imagen_URL || p.imagen || 'https://via.placeholder.com/150'" />
-          <span>{{ p.Producto }}</span>
+          <span>{{ p.Producto || 'Producto' }}</span>
         </div>
       </div>
     </div>
@@ -31,7 +32,7 @@
           :producto="producto"
         />
         <div v-if="productos.length === 0" style="grid-column: 1 / -1; text-align: center">
-          No se encontraron productos en la base de datos.
+          No se encontraron productos en la categoría o búsqueda seleccionada.
         </div>
       </div>
     </main>
@@ -48,7 +49,8 @@ import ProductCard from '@/components/ProductCard.vue'
 import ProductModal from '@/components/ProductModal.vue'
 import NavBar from '@/components/NavBar.vue'
 
-const productos = ref<Producto[]>([])
+const productos = ref<Producto[]>([]) // Para la cuadrícula filtrada
+const productosCarrusel = ref<Producto[]>([]) // Colección global e inmutable para el carrusel
 const cargando = ref(true)
 const marketStore = useMarketStore()
 
@@ -58,7 +60,7 @@ const cargarProductosDesdeAPI = async () => {
   cargando.value = true
   try {
     const data = await fetchProductos(marketStore.searchQuery, marketStore.selectedCategory)
-    productos.value = data
+    productos.value = data // Solo actualiza la cuadrícula de productos
   } catch (error) {
     console.error(error)
   } finally {
@@ -67,13 +69,19 @@ const cargarProductosDesdeAPI = async () => {
 }
 
 onMounted(async () => {
-  const todosLosProductos = await fetchProductos()
-  productos.value = todosLosProductos
+  cargando.value = true
+  try {
+    const todosLosProductos = await fetchProductos()
+    productosCarrusel.value = todosLosProductos // Conserva el catálogo completo para el carrusel
+    productos.value = todosLosProductos
 
-  const cats = [...new Set(todosLosProductos.map((p) => p.Categoria).filter(Boolean))] as string[]
-  marketStore.setCategories(cats)
-
-  cargando.value = false
+    const cats = [...new Set(todosLosProductos.map((p) => p.Categoria).filter(Boolean))] as string[]
+    marketStore.setCategories(cats)
+  } catch (error) {
+    console.error(error)
+  } finally {
+    cargando.value = false
+  }
 })
 </script>
 

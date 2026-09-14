@@ -22,11 +22,19 @@
     <h1 class="result-title">
       RESULTADO: <span class="result-value">{{ resultado.toFixed(4) }}</span>
     </h1>
+
+    <!-- FLECHA DE REGRESO -->
+    <button class="btn-back-floating" @click="goBack" title="Volver">
+      <img src="/Flecha.png" alt="Volver" />
+    </button>
   </div>
 </template>
 
 <script setup lang="ts">
 import { ref, computed } from 'vue'
+import { useRouter } from 'vue-router'
+
+const router = useRouter()
 
 const gota = ref<number>(0)
 const gramaje = ref<number>(0)
@@ -38,6 +46,10 @@ const resultado = computed(() => {
   }
   return 0
 })
+
+const goBack = () => {
+  router.back()
+}
 </script>
 
 <style scoped>
@@ -51,6 +63,7 @@ const resultado = computed(() => {
   display: flex;
   flex-direction: column;
   justify-content: center;
+  position: relative;
 }
 .calc-title {
   letter-spacing: 2px;
@@ -100,5 +113,34 @@ const resultado = computed(() => {
 }
 .result-value {
   color: var(--accent);
+}
+
+/* BOTÓN FLOTANTE EN ESQUINA INFERIOR IZQUIERDA */
+.btn-back-floating {
+  position: fixed;
+  bottom: 25px;
+  left: 25px;
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  z-index: 20000;
+  padding: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition:
+    transform 0.2s ease,
+    opacity 0.2s ease;
+}
+
+.btn-back-floating:hover {
+  transform: scale(1.15);
+  opacity: 0.85;
+}
+
+.btn-back-floating img {
+  width: 45px;
+  height: 45px;
+  object-fit: contain;
 }
 </style>
