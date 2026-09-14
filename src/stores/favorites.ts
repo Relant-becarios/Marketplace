@@ -1,148 +1,65 @@
 import { defineStore } from 'pinia'
-import { ref, watch } from 'vue'
-import { db, auth } from '@/firebase'
-import { ref as dbRef, set, remove, get } from 'firebase/database'
-import { onAuthStateChanged } from 'firebase/auth'
-
-export interface ProductoFavorito {
-  id?: string
-  ID?: string
-  Producto?: string
-  nombre?: string
-  Precio?: number
-  Imagen_URL?: string
-  imagen?: string
-  Categoria?: string
-  [key: string]: unknown
-}
-
-const STORAGE_KEY = 'relant_favorites'
-
-function limpiarClaveFirebase(clave: string): string {
-  return clave.replace(/[^a-zA-Z0-9_-]/g, '_')
-}
-
-function obtenerIdSeguro(p: ProductoFavorito | string | undefined): string {
-  if (typeof p === 'string') return p
-  if (!p) return ''
-  const item = p as Record<string, unknown>
-  const rawId =
-    item.id ||
-    item.ID ||
-    item.sku ||
-    item['no. De parte'] ||
-    item['Producto '] ||
-    item.Producto ||
-    item.nombre ||
-    ''
-  return String(rawId).trim()
-}
+import { ref } from 'vue'
+import { db } from '@/firebase'
+import { ref as dbRef, get, set, remove } from 'firebase/database'
+import { useAuthStore } from '@/stores/auth'
+import type { Producto } from '@/api/inventory'
 
 export const useFavoritesStore = defineStore('favorites', () => {
-  const favoritos = ref<ProductoFavorito[]>(
-    (() => {
-      try {
-        const data = localStorage.getItem(STORAGE_KEY)
-        return data ? JSON.parse(data) : []
-      } catch {
-        return []
-      }
-    })(),
-  )
+  const favoritos = ref<Producto[]>([])
+  const authStore = useAuthStore()
 
-  const guardarLocal = () => {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(favoritos.value))
-  }
-
-  watch(favoritos, () => guardarLocal(), { deep: true })
-
-  onAuthStateChanged(auth, async (user) => {
-    if (user) {
-      try {
-        const snap = await get(dbRef(db, `favoritos/${user.uid}`))
-        const mapa = new Map<string, ProductoFavorito>()
-
-        favoritos.value.forEach((item) => {
-          const id = obtenerIdSeguro(item)
-          if (id) mapa.set(id, item)
-        })
-
-        if (snap.exists() && snap.val()) {
-          const nubeItems = Object.values(snap.val()) as ProductoFavorito[]
-          nubeItems.forEach((item) => {
-            const id = obtenerIdSeguro(item)
-            if (id) mapa.set(id, item)
-          })
-        }
-
-        favoritos.value = Array.from(mapa.values())
-        guardarLocal()
-
-        if (favoritos.value.length > 0) {
-          const mapaFirebase: Record<string, ProductoFavorito> = {}
-          favoritos.value.forEach((item) => {
-            const id = obtenerIdSeguro(item)
-            if (id) mapaFirebase[limpiarClaveFirebase(id)] = item
-          })
-          await set(dbRef(db, `favoritos/${user.uid}`), mapaFirebase)
-        }
-      } catch (e) {
-        console.error('Error sincronizando favoritos:', e)
-      }
+  // Cargar favoritos del usuario desde Firebase
+  const cargarFavoritos = async () => {
+    if (!authStore.usuarioActual) {
+      favoritos.value = []
+      return
     }
-  })
-
-  function esFavorito(productoOId: ProductoFavorito | string | undefined): boolean {
-    const idTarget = obtenerIdSeguro(productoOId)
-    if (!idTarget) return false
-    return favoritos.value.some((p) => obtenerIdSeguro(p) === idTarget)
+    const uid = authStore.usuarioActual.uid
+    try {
+      const snap = await get(dbRef(db, `favoritos/${uid}`))
+      if (snap.exists()) {
+        favoritos.value = Object.values(snap.val()) as Producto[]
+      } else {
+        favoritos.value = []
+      }
+    } catch (e) {
+      console.error('Error cargando favoritos desde Firebase:', e)
+    }
   }
 
-  async function toggleFavorito(producto: ProductoFavorito | undefined) {
-    if (!producto) return
-    const idStr = obtenerIdSeguro(producto)
-    if (!idStr) return
+  // Alternar favorito (guardar / eliminar en Firebase)
+  const toggleFavorito = async (producto: Producto) => {
+    if (!authStore.usuarioActual) return
+    const uid = authStore.usuarioActual.uid
+    const idClave = String(producto.id || producto.SKU || producto.Producto).replace(
+      /[.#$/[\]]/g,
+      '_',
+    )
 
-    const index = favoritos.value.findIndex((p) => obtenerIdSeguro(p) === idStr)
-    const user = auth.currentUser
-    const prodRecord = producto as Record<string, unknown>
+    const index = favoritos.value.findIndex(
+      (item) =>
+        String(item.id || item.SKU || item.Producto) ===
+        String(producto.id || producto.SKU || producto.Producto),
+    )
 
-    if (index >= 0) {
+    if (index > -1) {
+      // Eliminar de Firebase
+      await remove(dbRef(db, `favoritos/${uid}/${idClave}`))
       favoritos.value.splice(index, 1)
-      guardarLocal()
-      if (user) {
-        try {
-          await remove(dbRef(db, `favoritos/${user.uid}/${limpiarClaveFirebase(idStr)}`))
-        } catch (e) {
-          console.error('Error al remover de Firebase:', e)
-        }
-      }
     } else {
-      const itemGuardar: ProductoFavorito = {
-        ...producto,
-        id: idStr,
-        Producto:
-          producto.Producto || (prodRecord['Producto '] as string) || producto.nombre || 'Producto',
-        Precio: Number(producto.Precio || 0),
-        Imagen_URL:
-          producto.Imagen_URL ||
-          (prodRecord['Imagen URL'] as string) ||
-          producto.imagen ||
-          'https://via.placeholder.com/150',
-      }
-
-      favoritos.value.push(itemGuardar)
-      guardarLocal()
-
-      if (user) {
-        try {
-          await set(dbRef(db, `favoritos/${user.uid}/${limpiarClaveFirebase(idStr)}`), itemGuardar)
-        } catch (e) {
-          console.error('Error al guardar en Firebase:', e)
-        }
-      }
+      // Guardar en Firebase
+      await set(dbRef(db, `favoritos/${uid}/${idClave}`), producto)
+      favoritos.value.push(producto)
     }
   }
 
-  return { favoritos, esFavorito, toggleFavorito }
+  // Acepta tanto el objeto Producto como un string con el ID
+  const esFavorito = (target: Producto | string) => {
+    const targetId =
+      typeof target === 'string' ? target : String(target.id || target.SKU || target.Producto)
+    return favoritos.value.some((item) => String(item.id || item.SKU || item.Producto) === targetId)
+  }
+
+  return { favoritos, cargarFavoritos, toggleFavorito, esFavorito }
 })

@@ -96,23 +96,21 @@
           <div v-else class="products-grid">
             <div
               v-for="fav in favoritesStore.favoritos"
-              :key="String(fav.id || fav.Producto)"
+              :key="String(fav.id || fav.SKU || fav.Producto)"
               class="prod-card"
             >
               <img
-                :src="fav.Imagen_URL || fav.imagen || 'https://via.placeholder.com/150'"
-                :alt="fav.Producto || fav.nombre || 'Producto'"
+                :src="fav.Imagen_URL || 'https://via.placeholder.com/150'"
+                :alt="fav.Producto || 'Producto'"
               />
-              <h4>{{ fav.Producto || fav.nombre }}</h4>
+              <h4>{{ fav.Producto }}</h4>
               <p class="price">${{ Number(fav.Precio || 0).toFixed(2) }} USD</p>
-              <button class="btn-action" @click="agregarAlCarrito(String(fav.id || fav.Producto))">
-                Añadir al carrito
-              </button>
+              <button class="btn-action" @click="agregarAlCarrito(fav)">Añadir al carrito</button>
             </div>
           </div>
         </div>
 
-        <!-- HISTORIAL RECIENTE -->
+        <!-- HISTORIAL DE NAVEGACIÓN -->
         <div v-if="tabActiva === 'recientes'" class="tab-content">
           <div v-if="vistosRecientemente.length === 0" class="empty-box">
             <p>No tienes productos en tu historial de navegación reciente.</p>
@@ -121,17 +119,17 @@
           <div v-else class="products-grid">
             <div
               v-for="prod in vistosRecientemente"
-              :key="String(prod.id || prod.Producto)"
+              :key="String(prod.id || prod.SKU || prod.Producto)"
               class="prod-card"
             >
               <img
-                :src="prod.Imagen_URL || prod.imagen || 'https://via.placeholder.com/150'"
-                :alt="prod.Producto || prod.nombre || 'Producto'"
+                :src="prod.Imagen_URL || 'https://via.placeholder.com/150'"
+                :alt="prod.Producto || 'Producto'"
               />
-              <h4>{{ prod.Producto || prod.nombre }}</h4>
+              <h4>{{ prod.Producto }}</h4>
               <p class="price">${{ Number(prod.Precio || 0).toFixed(2) }} USD</p>
 
-              <!-- ABRE LA FICHA TÉCNICA Y LLEVA AL CATÁLOGO -->
+              <!-- ABRE EL MODAL Y REDIRIGE AL CATÁLOGO -->
               <button class="btn-action" @click="volverAVer(prod)">Volver a ver</button>
             </div>
           </div>
@@ -173,15 +171,7 @@ interface Orden {
   items?: ItemOrden[]
 }
 
-interface ProductoPerfil {
-  id: string
-  Producto?: string
-  nombre?: string
-  Precio?: number
-  Imagen_URL?: string
-  imagen?: string
-  [key: string]: unknown
-}
+type ProductoHistorial = Producto & { vistoEn?: number }
 
 const router = useRouter()
 const authStore = useAuthStore()
@@ -192,7 +182,7 @@ const marketStore = useMarketStore()
 
 const tabActiva = ref<'pedidos' | 'favoritos' | 'recientes'>('pedidos')
 const pedidos = ref<Orden[]>([])
-const vistosRecientemente = ref<ProductoPerfil[]>([])
+const vistosRecientemente = ref<ProductoHistorial[]>([])
 
 const usuarioInicial = computed(() => {
   const nombre = authStore.perfil?.nombre || authStore.usuarioActual?.email || 'U'
@@ -201,19 +191,8 @@ const usuarioInicial = computed(() => {
 
 const cambiarTab = (tab: 'pedidos' | 'favoritos' | 'recientes') => {
   tabActiva.value = tab
-  if (tab === 'recientes') {
-    cargarHistorialLocal()
-  }
-}
-
-const cargarHistorialLocal = () => {
-  try {
-    const storageRecientes = localStorage.getItem('relant_recent_items')
-    if (storageRecientes) {
-      vistosRecientemente.value = JSON.parse(storageRecientes) as ProductoPerfil[]
-    }
-  } catch (e) {
-    console.error('Error cargando historial reciente:', e)
+  if (tab === 'recientes' || tab === 'favoritos') {
+    cargarDatos()
   }
 }
 
@@ -231,30 +210,41 @@ const obtenerPorcentaje = (estado: string = '') => {
   return '10%'
 }
 
-const agregarAlCarrito = (id: string) => {
-  cartStore.agregarProducto(id)
+const agregarAlCarrito = (prod: Producto) => {
+  const prodId = String(prod.id || prod.SKU || prod.Producto)
+  cartStore.agregarProducto(prodId)
   uiStore.toggleCart()
 }
 
-// LLEVA AL CATÁLOGO Y ABRE EL MODAL DEL PRODUCTO
-const volverAVer = (prod: ProductoPerfil) => {
-  marketStore.openModal(prod as unknown as Producto)
+const volverAVer = (prod: Producto) => {
+  marketStore.openModal(prod)
   router.push('/catalogo')
 }
 
 const cargarDatos = async () => {
-  cargarHistorialLocal()
-
   if (!authStore.usuarioActual) return
   const uid = authStore.usuarioActual.uid
 
   try {
+    // 1. Cargar Pedidos desde Firebase
     const snapPedidos = await get(dbRef(db, `ordenes/${uid}`))
     if (snapPedidos.exists()) {
       pedidos.value = Object.values(snapPedidos.val()) as Orden[]
     }
+
+    // 2. Cargar Favoritos desde Firebase
+    await favoritesStore.cargarFavoritos()
+
+    // 3. Cargar Historial de Navegación desde Firebase
+    const snapHistorial = await get(dbRef(db, `historial/${uid}`))
+    if (snapHistorial.exists()) {
+      const rawHistorial = Object.values(snapHistorial.val()) as ProductoHistorial[]
+      vistosRecientemente.value = rawHistorial.sort((a, b) => (b.vistoEn || 0) - (a.vistoEn || 0))
+    } else {
+      vistosRecientemente.value = []
+    }
   } catch (e) {
-    console.error('Error al cargar datos del perfil:', e)
+    console.error('Error al cargar datos del perfil desde Firebase:', e)
   }
 }
 
@@ -290,7 +280,7 @@ onMounted(() => {
 .avatar {
   width: 65px;
   height: 65px;
-  background: var(--accent, #d32f2f);
+  background: var(--accent, #ff0000);
   color: white;
   border-radius: 50%;
   display: flex;
@@ -332,8 +322,8 @@ onMounted(() => {
 }
 
 .tab-btn.active {
-  color: var(--accent, #d32f2f);
-  border-bottom-color: var(--accent, #d32f2f);
+  color: var(--accent, #ff0000);
+  border-bottom-color: var(--accent, #ff0000);
 }
 
 .tab-content {
@@ -357,7 +347,7 @@ onMounted(() => {
 }
 
 .order-card {
-  background: var(--bg-input, #e9ecef);
+  background: var(--bg-input, #eef2f5);
   border: 1px solid var(--border, #d1d5da);
   border-radius: 10px;
   padding: 20px;
@@ -383,7 +373,7 @@ onMounted(() => {
 
 .order-total {
   font-weight: 800;
-  color: var(--accent, #d32f2f);
+  color: var(--accent, #ff0000);
   font-size: 1.1rem;
 }
 
@@ -402,7 +392,7 @@ onMounted(() => {
 
 .tracker-progress {
   height: 100%;
-  background: var(--accent, #d32f2f);
+  background: var(--accent, #ff0000);
   transition: width 0.4s ease;
 }
 
@@ -423,7 +413,7 @@ onMounted(() => {
 }
 
 .step.active {
-  color: var(--accent, #d32f2f);
+  color: var(--accent, #ff0000);
 }
 
 .step .dot {
@@ -435,7 +425,7 @@ onMounted(() => {
 }
 
 .step.active .dot {
-  background: var(--accent, #d32f2f);
+  background: var(--accent, #ff0000);
 }
 
 .order-items {
@@ -454,7 +444,7 @@ onMounted(() => {
 }
 
 .prod-card {
-  background: var(--bg-input, #e9ecef);
+  background: var(--bg-input, #eef2f5);
   border: 1px solid var(--border, #d1d5da);
   border-radius: 8px;
   padding: 15px;
@@ -480,14 +470,14 @@ onMounted(() => {
 }
 
 .prod-card .price {
-  color: var(--accent, #d32f2f);
+  color: var(--accent, #ff0000);
   font-weight: 800;
   margin-bottom: 10px;
 }
 
 .btn-action {
   width: 100%;
-  background: var(--accent, #d32f2f);
+  background: var(--accent, #ff0000);
   color: white;
   border: none;
   padding: 8px;
@@ -495,6 +485,11 @@ onMounted(() => {
   font-weight: 700;
   cursor: pointer;
   font-size: 0.8rem;
+  transition: background 0.2s ease;
+}
+
+.btn-action:hover {
+  background: #d32f2f;
 }
 
 .login-prompt {
@@ -503,7 +498,7 @@ onMounted(() => {
 }
 
 .btn-login-prompt {
-  background: var(--accent, #d32f2f);
+  background: var(--accent, #ff0000);
   color: white;
   border: none;
   padding: 12px 24px;

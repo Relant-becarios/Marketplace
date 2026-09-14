@@ -1,53 +1,54 @@
 <template>
-  <div class="product-card" @click="marketStore.openModal(producto)">
-    <div class="card-img-wrapper">
-      <!-- BOTÓN DE FAVORITOS (CORAZÓN EN LA ESQUINA) -->
-      <button
-        class="btn-favorite"
-        :class="{ active: favoritesStore.esFavorito(producto) }"
-        @click.stop="favoritesStore.toggleFavorito(producto)"
-        title="Guardar en favoritos"
+  <div class="product-card" @click="openModal">
+    <!-- BOTÓN DE FAVORITOS -->
+    <button
+      class="btn-fav"
+      :class="{ active: isFav }"
+      @click.stop="handleToggleFav"
+      title="Añadir a Favoritos"
+    >
+      <svg
+        width="20"
+        height="20"
+        viewBox="0 0 24 24"
+        :fill="isFav ? '#ff0000' : 'none'"
+        :stroke="isFav ? '#ff0000' : 'currentColor'"
+        stroke-width="2"
       >
-        <svg
-          viewBox="0 0 24 24"
-          width="18"
-          height="18"
-          stroke="currentColor"
-          stroke-width="2"
-          :fill="favoritesStore.esFavorito(producto) ? '#ff0000' : 'none'"
-        >
-          <path
-            d="M12 21.35l-1.45-1.32C5.4 15.36 2 12.28 2 8.5 2 5.42 4.42 3 7.5 3c1.74 0 3.41.81 4.5 2.09C13.09 3.81 14.76 3 16.5 3 19.58 3 22 5.42 22 8.5c0 3.78-3.4 6.86-8.55 11.54L12 21.35z"
-          />
-        </svg>
-      </button>
+        <path
+          d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l8.78-8.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z"
+        ></path>
+      </svg>
+    </button>
 
+    <div class="img-wrapper">
       <img
-        :src="producto.Imagen_URL || producto.imagen || 'https://via.placeholder.com/200'"
+        :src="producto.Imagen_URL || 'https://via.placeholder.com/200'"
         :alt="producto.Producto"
       />
     </div>
 
     <div class="card-body">
-      <span class="category-badge">{{ producto.Categoria || 'General' }}</span>
+      <span class="category-badge">{{ producto.Categoría || 'General' }}</span>
       <h3 class="product-title">{{ producto.Producto }}</h3>
-      <p class="product-sku">SKU: {{ producto.id || producto.ID || 'N/A' }}</p>
+      <p class="sku-text">SKU: {{ producto.SKU || 'N/A' }}</p>
 
-      <div class="price-row">
-        <span class="price-usd">${{ Number(producto.Precio || 0).toFixed(2) }} USD</span>
-        <span class="price-mxn"> ~ ${{ (Number(producto.Precio || 0) * 20).toFixed(2) }} MXN </span>
+      <div class="card-footer">
+        <span class="price">${{ Number(producto.Precio || 0).toFixed(2) }} USD</span>
+        <button class="btn-cart-add" @click.stop="agregarAlCarrito">Añadir</button>
       </div>
-
-      <button class="btn-add-cart" @click.stop="agregarAlCarrito">AÑADIR AL CARRITO</button>
     </div>
   </div>
 </template>
 
 <script setup lang="ts">
+import { computed } from 'vue'
 import type { Producto } from '@/api/inventory'
 import { useMarketStore } from '@/stores/market'
 import { useCartStore } from '@/stores/cart'
 import { useFavoritesStore } from '@/stores/favorites'
+import { useAuthStore } from '@/stores/auth'
+import { useUiStore } from '@/stores/ui'
 
 const props = defineProps<{
   producto: Producto
@@ -56,146 +57,135 @@ const props = defineProps<{
 const marketStore = useMarketStore()
 const cartStore = useCartStore()
 const favoritesStore = useFavoritesStore()
+const authStore = useAuthStore()
+const uiStore = useUiStore()
+
+const isFav = computed(() => favoritesStore.esFavorito(props.producto))
+
+const handleToggleFav = () => {
+  if (!authStore.usuarioActual) {
+    uiStore.toggleAuthModal()
+    return
+  }
+  favoritesStore.toggleFavorito(props.producto)
+}
+
+const openModal = () => {
+  marketStore.openModal(props.producto)
+}
 
 const agregarAlCarrito = () => {
-  const prodId = String(props.producto.id || props.producto.ID || props.producto.Producto || '')
-  if (prodId) {
-    cartStore.agregarProducto(prodId)
-  }
+  const idProducto = String(props.producto.id || props.producto.SKU || props.producto.Producto)
+  cartStore.agregarProducto(idProducto)
+  uiStore.toggleCart()
 }
 </script>
 
 <style scoped>
 .product-card {
-  background: var(--bg-panel);
-  border: 1px solid var(--border);
-  border-radius: 10px;
-  overflow: hidden;
+  background: var(--bg-panel, #ffffff);
+  border: 1px solid var(--border, #d1d5da);
+  border-radius: 12px;
+  padding: 16px;
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
   cursor: pointer;
   transition:
     transform 0.2s ease,
     box-shadow 0.2s ease;
-  display: flex;
-  flex-direction: column;
 }
 
 .product-card:hover {
   transform: translateY(-4px);
-  box-shadow: 0 10px 20px rgba(0, 0, 0, 0.15);
+  box-shadow: 0 8px 20px rgba(0, 0, 0, 0.12);
 }
 
-.card-img-wrapper {
-  position: relative;
+.btn-fav {
+  position: absolute;
+  top: 12px;
+  right: 12px;
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  z-index: 2;
+  color: var(--text-muted, #6a737d);
+  transition: transform 0.2s ease;
+}
+
+.btn-fav:hover {
+  transform: scale(1.15);
+}
+
+.img-wrapper {
   width: 100%;
-  height: 200px;
-  background: #ffffff;
+  height: 160px;
   display: flex;
   align-items: center;
   justify-content: center;
-  padding: 15px;
-  box-sizing: border-box;
+  background: #ffffff;
+  border-radius: 8px;
+  overflow: hidden;
+  margin-bottom: 12px;
 }
 
-.card-img-wrapper img {
+.img-wrapper img {
   max-width: 100%;
   max-height: 100%;
   object-fit: contain;
 }
 
-.btn-favorite {
-  position: absolute;
-  top: 10px;
-  right: 10px;
-  background: rgba(255, 255, 255, 0.9);
-  border: 1px solid var(--border, #d1d5da);
-  border-radius: 50%;
-  width: 34px;
-  height: 34px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  cursor: pointer;
-  z-index: 10;
-  transition:
-    transform 0.2s ease,
-    background 0.2s ease;
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
-}
-
-.btn-favorite:hover {
-  transform: scale(1.15);
-  background: #ffffff;
-}
-
-.btn-favorite svg {
-  stroke: #ff0000;
-  transition: fill 0.2s ease;
-}
-
-.btn-favorite.active {
-  border-color: #ff0000;
-  background: #ffffff;
-}
-
-.card-body {
-  padding: 18px;
-  display: flex;
-  flex-direction: column;
-  flex: 1;
-}
-
 .category-badge {
-  font-size: 0.7rem;
+  font-size: 11px;
   font-weight: 800;
-  color: var(--accent);
+  color: #ff0000;
   text-transform: uppercase;
   letter-spacing: 0.5px;
 }
 
 .product-title {
-  font-size: 1rem;
-  font-weight: 800;
-  margin: 6px 0;
+  font-size: 14px;
+  font-weight: 700;
+  margin: 6px 0 4px 0;
   line-height: 1.3;
+  color: var(--text-main);
 }
 
-.product-sku {
-  font-size: 0.75rem;
-  color: var(--text-muted);
+.sku-text {
+  font-size: 11px;
+  color: var(--text-muted, #6a737d);
   margin-bottom: 12px;
 }
 
-.price-row {
-  margin-top: auto;
-  margin-bottom: 15px;
+.card-footer {
   display: flex;
-  flex-direction: column;
+  align-items: center;
+  justify-content: space-between;
+  margin-top: auto;
 }
 
-.price-usd {
-  font-size: 1.1rem;
+.price {
+  font-size: 16px;
   font-weight: 900;
-  color: var(--accent);
+  color: #ff0000;
 }
 
-.price-mxn {
-  font-size: 0.8rem;
-  color: var(--text-muted);
-}
-
-.btn-add-cart {
-  background: var(--accent);
-  color: #ffffff;
-  border: none;
-  padding: 10px;
-  border-radius: 6px;
-  font-weight: 800;
-  font-size: 0.8rem;
+.btn-cart-add {
+  background: var(--bg-input, #eef2f5);
+  color: var(--text-main);
+  border: 1px solid var(--border, #d1d5da);
+  padding: 6px 14px;
+  border-radius: 16px;
+  font-weight: 700;
+  font-size: 12px;
   cursor: pointer;
-  transition: background 0.2s ease;
+  transition: all 0.2s ease;
 }
 
-.btn-add-cart:hover {
-  background: var(--accent-hover, #b71c1c);
+.btn-cart-add:hover {
+  background: #ff0000;
+  color: #ffffff;
+  border-color: #ff0000;
 }
 </style>
