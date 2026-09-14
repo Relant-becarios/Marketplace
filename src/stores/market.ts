@@ -3,7 +3,34 @@ import { ref } from 'vue'
 import type { Producto } from '@/api/inventory'
 import { db } from '@/firebase'
 import { ref as dbRef, set } from 'firebase/database'
-import { useAuthStore } from '@/stores/auth'
+import { getAuth } from 'firebase/auth'
+
+const INVALID_KEY_REGEX = new RegExp('[.#$\\[\\]/]', 'g')
+
+// Sanitiza recursivamente y omite llaves vacías
+const sanitizeForFirebase = (data: unknown): unknown => {
+  if (data === null || data === undefined) return null
+  if (typeof data !== 'object') return data
+
+  if (Array.isArray(data)) {
+    return data.map(sanitizeForFirebase)
+  }
+
+  const obj = data as Record<string, unknown>
+  const sanitized: Record<string, unknown> = {}
+
+  for (const key of Object.keys(obj)) {
+    const val = obj[key]
+    if (val !== undefined) {
+      const cleanKey = key.replace(INVALID_KEY_REGEX, '_').trim()
+      // Firebase NO permite llaves vacías. Si la llave está en blanco, se ignora.
+      if (cleanKey !== '') {
+        sanitized[cleanKey] = sanitizeForFirebase(val)
+      }
+    }
+  }
+  return sanitized
+}
 
 export const useMarketStore = defineStore('market', () => {
   const selectedCategory = ref<string>('Todas')
@@ -17,29 +44,30 @@ export const useMarketStore = defineStore('market', () => {
     availableCategories.value = categories
   }
 
-  // Guarda la interacción del usuario en la base de datos de Firebase
-  const registrarHistorialFirebase = async (producto: Producto) => {
-    const authStore = useAuthStore()
-    if (!authStore.usuarioActual) return
-
-    const uid = authStore.usuarioActual.uid
+  const obtenerKeyValida = (producto: Producto): string => {
     const rawId = producto.id || producto.SKU || producto.Producto || 'item_sin_id'
-    const idClave = String(rawId).replace(/[.#$/[\]]/g, '_')
+    return String(rawId).replace(INVALID_KEY_REGEX, '_').trim()
+  }
 
-    // Elimina valores 'undefined' antes de enviar a Firebase Realtime Database
-    const productoLimpio = JSON.parse(JSON.stringify(producto))
+  const registrarHistorialFirebase = async (producto: Producto) => {
+    const auth = getAuth()
+    const user = auth.currentUser
+
+    if (!user) return
+
+    const idClave = obtenerKeyValida(producto)
+    const productoLimpio = sanitizeForFirebase(producto)
 
     try {
-      await set(dbRef(db, `historial/${uid}/${idClave}`), {
-        ...productoLimpio,
+      await set(dbRef(db, `historial/${user.uid}/${idClave}`), {
+        ...(productoLimpio as Record<string, unknown>),
         vistoEn: Date.now(),
       })
     } catch (e) {
-      console.error('Error al registrar en historial de Firebase:', e)
+      console.error('[Firebase Error] No se pudo guardar en el historial:', e)
     }
   }
 
-  // Abre la ficha técnica y registra el producto en el historial del usuario
   const openModal = (producto: Producto) => {
     selectedProduct.value = producto
     isModalOpen.value = true
