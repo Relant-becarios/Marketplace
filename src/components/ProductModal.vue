@@ -9,7 +9,7 @@
       <div class="modal-body" v-if="producto">
         <!-- SECCIÓN DE GALERÍA DE IMÁGENES INTERACTIVA CON ZOOM -->
         <div class="modal-gallery">
-          <!-- 1. VISTA PRINCIPAL GRANDE CON LUPA/ZOOM TIPO AMAZON -->
+          <!-- VISTA PRINCIPAL GRANDE CON LUPA/ZOOM TIPO AMAZON -->
           <div
             class="main-img-box"
             @mousemove="handleMouseMove"
@@ -22,7 +22,7 @@
             />
           </div>
 
-          <!-- 2, 3, 4. MINIATURAS INTERACTIVAS -->
+          <!-- MINIATURAS INTERACTIVAS -->
           <div v-if="galeria.length > 1" class="thumbnails-row">
             <div
               v-for="(img, idx) in galeria"
@@ -67,10 +67,16 @@
           </div>
 
           <div class="modal-actions">
-            <button class="btn-primary" @click="añadirAlCarrito">AÑADIR AL CARRITO DE COTIZACIÓN</button>
+            <button
+              class="btn-primary"
+              :disabled="stockNumerico <= 0"
+              @click="añadirAlCarrito"
+            >
+              {{ stockNumerico <= 0 ? 'PRODUCTO AGOTADO' : 'AÑADIR AL CARRITO DE COTIZACIÓN' }}
+            </button>
 
             <button class="btn-refacciones" @click="irARefacciones">
-               VER KITS Y REFACCIONES (VISTA EXPLOSIONADA)
+              VER KITS Y REFACCIONES (VISTA EXPLOSIONADA)
             </button>
 
             <button class="btn-secondary" @click="marketStore.closeModal">CERRAR FICHA TÉCNICA</button>
@@ -84,14 +90,15 @@
 <script setup lang="ts">
 import { ref, computed, watch } from 'vue'
 import { useRouter } from 'vue-router'
-import { useMarketStore } from '@/stores/market'
+import { useMarketStore, type ProductoExtendido } from '@/stores/market'
 import { useCartStore } from '@/stores/cart'
+import { useUiStore } from '@/stores/ui'
 
 const marketStore = useMarketStore()
 const cartStore = useCartStore()
+const uiStore = useUiStore()
 const router = useRouter()
 
-// AQUÍ ESTABA EL ERROR: Cambiado a productoSeleccionado para coincidir con el store
 const producto = computed(() => marketStore.productoSeleccionado)
 
 // LÓGICA DE ZOOM INTERACTIVO TIPO AMAZON
@@ -134,9 +141,9 @@ const galeria = computed(() => {
   const items: { label: string; url: string }[] = []
 
   const front = prod.Imagen_Front_URL || prod.Photo_front_url || prod.Photo_front || prod.Imagen_Front
-  const back = prod.Imagen_Back_URL || prod.Photo_back_url || prod.Photo_back || prod.Imagen_Back
+  const back = prod.Imagen_Back_URL || prod.Photo_back_url || prod.Photo_back || prod.Imagen_Back || prod.Imagen2 || prod.imagen2
   const explosion = prod.Imagen_Explosionada_URL || prod.imagen_explosionada || prod.Diagrama
-  const general = prod['Imagen URL'] || prod.Imagen_URL || prod.imagen
+  const general = prod.Imagen_URL || prod['Imagen URL'] || prod.Imagen || prod.imagen || prod.Foto
 
   if (front && typeof front === 'string' && front.startsWith('http')) {
     items.push({ label: 'Front', url: front })
@@ -157,6 +164,12 @@ const galeria = computed(() => {
 
 const imagenSeleccionada = ref<string>('')
 
+const stockNumerico = computed(() => {
+  if (!producto.value) return 0
+  const val = (producto.value as ProductoExtendido).Stock
+  return typeof val === 'number' ? val : parseInt(String(val || 0), 10) || 0
+})
+
 watch(
   () => producto.value,
   () => {
@@ -164,7 +177,9 @@ watch(
     if (galeria.value.length > 0 && galeria.value[0]) {
       imagenSeleccionada.value = galeria.value[0].url
     } else {
-      imagenSeleccionada.value = 'https://via.placeholder.com/300'
+      const pExt = producto.value as ProductoExtendido | null
+      const fallback = pExt?.Imagen_URL || pExt?.Imagen || pExt?.imagen || 'https://via.placeholder.com/300'
+      imagenSeleccionada.value = typeof fallback === 'string' ? fallback : 'https://via.placeholder.com/300'
     }
   },
   { immediate: true }
@@ -175,12 +190,13 @@ const especificacionesTecnicas = computed(() => {
 
   const camposIgnorados = [
     'ID', 'id', 'Producto', 'Producto ', 'Descripción', 'Descripcion', 'Detalle',
-    'Imagen_URL', 'Imagen URL', 'imagen', 'Precio', 'precio', 'Categoria', 'categoria',
-    'Stock', 'stock', 'no. De parte', 'no. de parte', 'no_de_parte',
+    'Imagen_URL', 'Imagen URL', 'Imagen', 'imagen', 'IMAGEN', 'Foto', 'URL', 'url',
+    'Precio', 'precio', 'Categoria', 'categoria', 'CATEGORIA',
+    'Stock', 'stock', 'no. De parte', 'no. de parte', 'NO_DE_PARTE', 'no_de_parte',
     'Kits', 'kits', 'Imagen_Explosionada_URL', 'imagen_explosionada',
     'Manual_URL', 'Plano_URL', 'Imagen_Front_URL', 'Imagen_Back_URL',
     'Photo_front', 'Photo_back', 'Photo_front_url', 'Photo_back_url',
-    'Imagen_Front', 'Imagen_Back'
+    'Imagen_Front', 'Imagen_Back', 'Imagen2', 'imagen2', 'vistoEn'
   ]
 
   const specs = []
@@ -189,7 +205,7 @@ const especificacionesTecnicas = computed(() => {
     if (!camposIgnorados.includes(key) && value !== '' && value !== null && value !== undefined) {
       let etiquetaFormateada = key.replace(/_/g, ' ')
       etiquetaFormateada = etiquetaFormateada.charAt(0).toUpperCase() + etiquetaFormateada.slice(1)
-      specs.push({ etiqueta: etiquetaFormateada, valor: value })
+      specs.push({ etiqueta: etiquetaFormateada, valor: String(value) })
     }
   }
 
@@ -197,12 +213,23 @@ const especificacionesTecnicas = computed(() => {
 })
 
 const añadirAlCarrito = () => {
-  if (producto.value) {
+  if (producto.value && stockNumerico.value > 0) {
     const prodStrict = producto.value as Record<string, unknown>
-    const id = prodStrict.id || prodStrict.ID || prodStrict.Producto || prodStrict['Producto ']
-    cartStore.agregarProducto(String(id))
-    alert('Producto añadido al carrito de cotización')
-    marketStore.closeModal()
+    const id = String(
+      prodStrict.id ||
+        prodStrict.ID ||
+        prodStrict.SKU ||
+        prodStrict['no. De parte'] ||
+        prodStrict.NO_DE_PARTE ||
+        prodStrict.Producto ||
+        '',
+    ).trim()
+
+    if (id) {
+      cartStore.agregarProducto(id, stockNumerico.value, 1)
+      uiStore.toggleCart()
+      marketStore.closeModal()
+    }
   }
 }
 
@@ -218,10 +245,10 @@ const irARefacciones = () => {
 
 <style scoped>
 .modal-overlay { position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.8); z-index: 10000; display: flex; align-items: center; justify-content: center; padding: 20px; box-sizing: border-box; }
-.modal-content { background: var(--bg-panel); width: 100%; max-width: 850px; border-radius: 12px; border: 1px solid var(--border); overflow: hidden; color: var(--text-main); box-shadow: 0 20px 50px rgba(0,0,0,0.6); max-height: 90vh; overflow-y: auto; }
-.modal-header { padding: 20px; border-bottom: 1px solid var(--border); display: flex; justify-content: space-between; align-items: center; background: var(--bg-input); }
-.close-btn { font-size: 24px; cursor: pointer; color: var(--text-muted); transition: 0.2s; }
-.close-btn:hover { color: var(--accent); }
+.modal-content { background: var(--bg-panel, #ffffff); width: 100%; max-width: 850px; border-radius: 12px; border: 1px solid var(--border, #e2e8f0); overflow: hidden; color: var(--text-main, #0f172a); box-shadow: 0 20px 50px rgba(0,0,0,0.6); max-height: 90vh; overflow-y: auto; }
+.modal-header { padding: 20px; border-bottom: 1px solid var(--border, #e2e8f0); display: flex; justify-content: space-between; align-items: center; background: var(--bg-input, #f8fafc); }
+.close-btn { font-size: 24px; cursor: pointer; color: var(--text-muted, #64748b); transition: 0.2s; }
+.close-btn:hover { color: var(--accent, #dc2626); }
 .modal-body { display: flex; flex-wrap: wrap; padding: 25px; gap: 25px; }
 
 /* GALERÍA DE IMÁGENES CON ZOOM */
@@ -232,7 +259,7 @@ const irARefacciones = () => {
   background: white;
   border-radius: 8px;
   padding: 10px;
-  border: 1px solid var(--border);
+  border: 1px solid var(--border, #e2e8f0);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -250,25 +277,24 @@ const irARefacciones = () => {
 }
 
 .thumbnails-row { display: flex; gap: 10px; overflow-x: auto; padding-bottom: 4px; }
-.thumb-card { width: 65px; height: 65px; background: white; border-radius: 6px; border: 2px solid var(--border); cursor: pointer; position: relative; flex-shrink: 0; overflow: hidden; padding: 4px; box-sizing: border-box; transition: all 0.2s ease; }
-.thumb-card:hover { border-color: var(--text-muted); }
-.thumb-card.active { border-color: var(--accent); box-shadow: 0 0 8px rgba(255, 0, 0, 0.4); }
+.thumb-card { width: 65px; height: 65px; background: white; border-radius: 6px; border: 2px solid var(--border, #e2e8f0); cursor: pointer; position: relative; flex-shrink: 0; overflow: hidden; padding: 4px; box-sizing: border-box; transition: all 0.2s ease; }
+.thumb-card:hover { border-color: var(--text-muted, #94a3b8); }
+.thumb-card.active { border-color: var(--accent, #dc2626); box-shadow: 0 0 8px rgba(220, 38, 38, 0.4); }
 .thumb-card img { width: 100%; height: 100%; object-fit: contain; }
 .thumb-label { position: absolute; bottom: 0; left: 0; right: 0; background: rgba(0, 0, 0, 0.75); color: #fff; font-size: 8px; text-align: center; padding: 1px 0; font-weight: bold; }
 
 /* INFORMACIÓN Y DETALLES */
 .modal-info { flex: 1.5; min-width: 300px; display: flex; flex-direction: column; gap: 15px; }
-.producto-titulo { font-size: 24px; font-weight: 800; margin: 0; color: var(--text-main); text-transform: uppercase; letter-spacing: 0.5px; }
-.desc-text { color: var(--text-muted); font-size: 14px; line-height: 1.6; margin: 0; background: var(--bg-input); padding: 12px; border-radius: 6px; border: 1px solid var(--border); }
+.producto-titulo { font-size: 24px; font-weight: 800; margin: 0; color: var(--text-main, #0f172a); text-transform: uppercase; letter-spacing: 0.5px; }
+.desc-text { color: var(--text-muted, #475569); font-size: 14px; line-height: 1.6; margin: 0; background: var(--bg-input, #f1f5f9); padding: 12px; border-radius: 6px; border: 1px solid var(--border, #e2e8f0); }
 
 /* CUADRÍCULA DE ESPECIFICACIONES */
-.specs-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 10px; background: var(--bg-input); padding: 15px; border-radius: 6px; border: 1px solid var(--border); max-height: 250px; overflow-y: auto; }
-.spec-item { font-size: 13px; line-height: 1.4; border-bottom: 1px dashed var(--border); padding-bottom: 5px; }
+.specs-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 10px; background: var(--bg-input, #f8fafc); padding: 15px; border-radius: 6px; border: 1px solid var(--border, #e2e8f0); max-height: 250px; overflow-y: auto; }
+.spec-item { font-size: 13px; line-height: 1.4; border-bottom: 1px dashed var(--border, #e2e8f0); padding-bottom: 5px; }
 .spec-item:last-child { border-bottom: none; }
 
-/* ETIQUETAS EN ROJO */
 .spec-item strong {
-  color: var(--accent, #d32f2f);
+  color: var(--accent, #dc2626);
   display: block;
   font-size: 11px;
   text-transform: uppercase;
@@ -278,14 +304,13 @@ const irARefacciones = () => {
 
 .price-text {
   font-weight: bold;
-  color: var(--text-main);
+  color: var(--text-main, #0f172a);
 }
 
 .modal-actions { margin-top: 15px; display: flex; flex-direction: column; gap: 10px; }
 
-/* BOTÓN PRINCIPAL CON HOVER PROTEGIDO */
 .btn-primary {
-  background: var(--accent, #d32f2f);
+  background: var(--accent, #dc2626);
   color: #ffffff !important;
   border: none;
   padding: 14px;
@@ -296,14 +321,19 @@ const irARefacciones = () => {
   font-size: 13px;
   letter-spacing: 0.5px;
 }
-.btn-primary:hover {
-  background: var(--accent-hover, #b71c1c) !important;
+.btn-primary:hover:not(:disabled) {
+  background: var(--accent-hover, #b91c1c) !important;
   color: #ffffff !important;
-  box-shadow: 0 4px 12px rgba(211, 47, 47, 0.4);
+  box-shadow: 0 4px 12px rgba(220, 38, 38, 0.4);
+}
+.btn-primary:disabled {
+  background: #94a3b8 !important;
+  cursor: not-allowed;
+  box-shadow: none;
 }
 
-.btn-secondary { background: var(--bg-input); color: var(--text-main); border: 1px solid var(--border); padding: 12px; border-radius: 6px; font-weight: bold; cursor: pointer; transition: 0.2s; font-size: 13px; }
-.btn-secondary:hover { background: var(--border); }
-.btn-refacciones { background: #e0a800; color: #000; border: none; padding: 14px; border-radius: 6px; font-weight: bold; cursor: pointer; transition: 0.2s; font-size: 13px; letter-spacing: 0.5px; }
-.btn-refacciones:hover { background: #c69500; box-shadow: 0 4px 12px rgba(224,168,0,0.3); }
+.btn-secondary { background: var(--bg-input, #f1f5f9); color: var(--text-main, #0f172a); border: 1px solid var(--border, #e2e8f0); padding: 12px; border-radius: 6px; font-weight: bold; cursor: pointer; transition: 0.2s; font-size: 13px; }
+.btn-secondary:hover { background: var(--border, #cbd5e1); }
+.btn-refacciones { background: #d97706; color: #ffffff; border: none; padding: 14px; border-radius: 6px; font-weight: bold; cursor: pointer; transition: 0.2s; font-size: 13px; letter-spacing: 0.5px; }
+.btn-refacciones:hover { background: #b45309; box-shadow: 0 4px 12px rgba(217, 119, 6, 0.3); }
 </style>

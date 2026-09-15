@@ -56,7 +56,6 @@
 
               <!-- TRACKER CON ÍCONOS -->
               <div class="stepper-container">
-                <!-- Paso 1: En preparación -->
                 <div :class="['step-item', { active: obtenerNivelStep(orden.estado) >= 1 }]">
                   <div class="step-circle">
                     <svg
@@ -78,12 +77,10 @@
                   <span class="step-title">En preparación</span>
                 </div>
 
-                <!-- Línea 1-2 -->
                 <div
                   :class="['step-line', obtenerNivelStep(orden.estado) >= 2 ? 'solid' : 'dotted']"
                 ></div>
 
-                <!-- Paso 2: Empacado -->
                 <div :class="['step-item', { active: obtenerNivelStep(orden.estado) >= 2 }]">
                   <div class="step-circle">
                     <svg
@@ -104,12 +101,10 @@
                   <span class="step-title">Empacado</span>
                 </div>
 
-                <!-- Línea 2-3 -->
                 <div
                   :class="['step-line', obtenerNivelStep(orden.estado) >= 3 ? 'solid' : 'dotted']"
                 ></div>
 
-                <!-- Paso 3: En camino -->
                 <div :class="['step-item', { active: obtenerNivelStep(orden.estado) >= 3 }]">
                   <div class="step-circle">
                     <svg
@@ -129,12 +124,10 @@
                   <span class="step-title">En camino</span>
                 </div>
 
-                <!-- Línea 3-4 -->
                 <div
                   :class="['step-line', obtenerNivelStep(orden.estado) >= 4 ? 'solid' : 'dotted']"
                 ></div>
 
-                <!-- Paso 4: Entregado -->
                 <div :class="['step-item', { active: obtenerNivelStep(orden.estado) >= 4 }]">
                   <div class="step-circle">
                     <svg
@@ -248,8 +241,6 @@ interface Orden {
   items?: ItemOrden[]
 }
 
-type ProductoHistorial = Producto & { vistoEn?: number }
-
 const router = useRouter()
 const authStore = useAuthStore()
 const uiStore = useUiStore()
@@ -259,7 +250,9 @@ const marketStore = useMarketStore()
 
 const tabActiva = ref<string>('pedidos')
 const pedidos = ref<Orden[]>([])
-const vistosRecientemente = ref<ProductoHistorial[]>([])
+
+// Lectura reactiva inmediata desde el store global
+const vistosRecientemente = computed(() => marketStore.historial)
 
 const usuarioInicial = computed(() => {
   const nombre = authStore.perfil?.nombre || authStore.usuarioActual?.email || 'U'
@@ -357,6 +350,9 @@ const cargarDatos = async () => {
       await marketStore.cargarProductos()
     }
 
+    // Sincroniza el historial persistido de Firebase al store
+    await marketStore.cargarHistorialFirebase()
+
     const snapPedidos = await get(dbRef(db, `ordenes/${uid}`))
     if (snapPedidos.exists()) {
       const rawPedidos = Object.values(snapPedidos.val()) as Orden[]
@@ -364,14 +360,6 @@ const cargarDatos = async () => {
     }
 
     await favoritesStore.cargarFavoritos()
-
-    const snapHistorial = await get(dbRef(db, `historial/${uid}`))
-    if (snapHistorial.exists()) {
-      const rawHistorial = Object.values(snapHistorial.val()) as ProductoHistorial[]
-      vistosRecientemente.value = rawHistorial.sort((a, b) => (b.vistoEn || 0) - (a.vistoEn || 0))
-    } else {
-      vistosRecientemente.value = []
-    }
   } catch (e: unknown) {
     console.error('Error al cargar datos del perfil desde Firebase:', e)
   }

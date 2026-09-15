@@ -1,8 +1,8 @@
 import { defineStore } from 'pinia'
 import { ref } from 'vue'
 import { fetchProductos, type Producto } from '@/api/inventory'
-import { db } from '@/firebase'
-import { ref as dbRef, onValue, update } from 'firebase/database'
+import { db, auth } from '@/firebase'
+import { ref as dbRef, onValue, update, set, get } from 'firebase/database'
 
 export type ProductoExtendido = Producto & {
   ID?: string | number
@@ -22,11 +22,14 @@ export type ProductoExtendido = Producto & {
   Producto?: string
   Descripcion?: string
   descripcion?: string
+  vistoEn?: number
 }
 
 export type ItemCarrito = ProductoExtendido & {
   cantidad: number
 }
+
+const HISTORIAL_KEY = 'relant_historial_navegacion'
 
 export const useMarketStore = defineStore('market', () => {
   const productos = ref<Producto[]>([])
@@ -34,9 +37,19 @@ export const useMarketStore = defineStore('market', () => {
   const productoSeleccionado = ref<Producto | null>(null)
   const isModalOpen = ref(false)
 
-  // Estado del Carrito
-  const carrito = ref<ItemCarrito[]>([])
+  // Historial con persistencia local inmediata
+  const historial = ref<ProductoExtendido[]>(
+    (() => {
+      try {
+        const guardado = localStorage.getItem(HISTORIAL_KEY)
+        return guardado ? JSON.parse(guardado) : []
+      } catch {
+        return []
+      }
+    })(),
+  )
 
+  const carrito = ref<ItemCarrito[]>([])
   const searchQuery = ref<string>('')
   const selectedCategory = ref<string>('')
   const categorias = ref<string[]>([])
@@ -55,6 +68,108 @@ export const useMarketStore = defineStore('market', () => {
       return img.trim()
     }
     return 'https://via.placeholder.com/150'
+  }
+
+  const registrarVisita = async (prod: Producto) => {
+    const pExt = prod as ProductoExtendido
+    const rawKey = String(
+      pExt.id ||
+        pExt.ID ||
+        pExt.SKU ||
+        pExt['no. De parte'] ||
+        pExt.NO_DE_PARTE ||
+        pExt.Producto ||
+        '',
+    ).trim()
+    const key = rawKey
+      .toLowerCase()
+      .replace(/[.#$[\]]/g, '')
+      .replaceAll('/', '')
+
+    if (!key) return
+
+    const itemConFecha: ProductoExtendido = {
+      ...pExt,
+      vistoEn: Date.now(),
+    }
+
+    // Actualiza el estado reactivo e impide duplicados (último visto primero)
+    const filtrados = historial.value.filter((item) => {
+      const itemKey = String(
+        item.id ||
+          item.ID ||
+          item.SKU ||
+          item['no. De parte'] ||
+          item.NO_DE_PARTE ||
+          item.Producto ||
+          '',
+      )
+        .trim()
+        .toLowerCase()
+        .replace(/[.#$[\]]/g, '')
+        .replaceAll('/', '')
+      return itemKey !== key
+    })
+
+    historial.value = [itemConFecha, ...filtrados].slice(0, 20)
+    localStorage.setItem(HISTORIAL_KEY, JSON.stringify(historial.value))
+
+    // Guarda en Firebase si hay un usuario autenticado
+    if (auth.currentUser) {
+      try {
+        await set(dbRef(db, `historial/${auth.currentUser.uid}/${key}`), itemConFecha)
+      } catch (err: unknown) {
+        console.error('Error al guardar historial en Firebase:', err)
+      }
+    }
+  }
+
+  const cargarHistorialFirebase = async () => {
+    if (!auth.currentUser) return
+    try {
+      const snap = await get(dbRef(db, `historial/${auth.currentUser.uid}`))
+      if (snap.exists()) {
+        const itemsNube = Object.values(snap.val()) as ProductoExtendido[]
+
+        // Fusión local y nube
+        const mapa = new Map<string, ProductoExtendido>()
+        itemsNube.concat(historial.value).forEach((item) => {
+          const k = String(
+            item.id ||
+              item.ID ||
+              item.SKU ||
+              item['no. De parte'] ||
+              item.NO_DE_PARTE ||
+              item.Producto ||
+              '',
+          )
+            .trim()
+            .toLowerCase()
+          if (!mapa.has(k) || (item.vistoEn || 0) > (mapa.get(k)?.vistoEn || 0)) {
+            mapa.set(k, item)
+          }
+        })
+
+        const ordenados = Array.from(mapa.values()).sort(
+          (a, b) => (b.vistoEn || 0) - (a.vistoEn || 0),
+        )
+        historial.value = ordenados.slice(0, 20)
+        localStorage.setItem(HISTORIAL_KEY, JSON.stringify(historial.value))
+      }
+    } catch (e: unknown) {
+      console.error('Error cargando historial de la nube:', e)
+    }
+  }
+
+  const openModal = (prod: Producto) => {
+    productoSeleccionado.value = prod
+    isModalOpen.value = true
+    registrarVisita(prod)
+  }
+
+  const closeModal = () => {
+    isModalOpen.value = false
+    productoSeleccionado.value = null
   }
 
   const agregarAlCarrito = (prod: Producto, cantidadAgregar = 1) => {
@@ -76,7 +191,6 @@ export const useMarketStore = defineStore('market', () => {
     const imgUrl = resolverImagen(prod)
 
     if (itemExistente) {
-      // Bloquea cualquier intento de superar el stock disponible
       const nuevaCantidad = itemExistente.cantidad + cantidadAgregar
       itemExistente.cantidad = Math.min(nuevaCantidad, stockMax)
       itemExistente.Imagen_URL = imgUrl
@@ -98,7 +212,6 @@ export const useMarketStore = defineStore('market', () => {
 
     if (item) {
       const stockMax = Number(item.Stock) || 0
-      // Limita la cantidad entre 1 y el stock máximo del producto
       item.cantidad = Math.max(1, Math.min(nuevaCantidad, stockMax))
     }
   }
@@ -168,27 +281,19 @@ export const useMarketStore = defineStore('market', () => {
     }
   }
 
-  const openModal = (prod: Producto) => {
-    productoSeleccionado.value = prod
-    isModalOpen.value = true
-  }
-
-  const closeModal = () => {
-    isModalOpen.value = false
-    productoSeleccionado.value = null
-  }
-
   return {
     productos,
     cargando,
     productoSeleccionado,
     isModalOpen,
+    historial,
     carrito,
     searchQuery,
     selectedCategory,
     categorias,
     setCategories,
     cargarProductos,
+    cargarHistorialFirebase,
     agregarAlCarrito,
     actualizarCantidadCarrito,
     eliminarDelCarrito,

@@ -9,13 +9,13 @@
     <div class="search-container" v-if="mostrarFunciones">
       <div class="dropdown">
         <button type="button" class="btn-cat" @click.stop="showCats = !showCats">
-          <span class="cat-text">{{ marketStore.selectedCategory }}</span>
+          <span class="cat-text">{{ marketStore.selectedCategory || 'Todas' }}</span>
           <span class="arrow">▼</span>
         </button>
 
         <div class="dropdown-content" :class="{ show: showCats }" @click.stop>
           <a @click="seleccionarCat('Todas')">Todas</a>
-          <a v-for="cat in marketStore.availableCategories" :key="cat" @click="seleccionarCat(cat)">
+          <a v-for="cat in categoriasDisponibles" :key="cat" @click="seleccionarCat(cat)">
             {{ cat }}
           </a>
         </div>
@@ -130,6 +130,15 @@ const showCats = ref(false)
 const emit = defineEmits(['buscar'])
 
 const mostrarFunciones = computed(() => route.path === '/catalogo')
+
+// Obtiene la lista de categorías sin importar el nombre en el store
+const categoriasDisponibles = computed<string[]>(() => {
+  const storeExt = marketStore as unknown as {
+    categorias?: string[]
+    availableCategories?: string[]
+  }
+  return storeExt.categorias || storeExt.availableCategories || []
+})
 
 const seleccionarCat = (cat: string) => {
   marketStore.selectedCategory = cat
@@ -414,7 +423,6 @@ onUnmounted(() => {
   line-height: 1;
 }
 
-/* --- ESTILOS EXCLUSIVOS EN MODO OSCURO PARA NAVBAR --- */
 :global([data-theme='dark']) .navbar {
   background: #181b1f;
   border-bottom-color: #30363d;
