@@ -349,7 +349,7 @@ export const useMarketStore = defineStore('market', () => {
     }
   }
 
-  const iniciarSincronizacionAuto = (intervaloSegundos = 15) => {
+  const iniciarSincronizacionAuto = (intervaloSegundos = 60) => {
     cargarProductos()
 
     if (!timerSincronizacion) {

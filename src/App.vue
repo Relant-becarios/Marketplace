@@ -37,8 +37,8 @@ onMounted(() => {
   const tema = localStorage.getItem('theme') || 'light'
   document.documentElement.setAttribute('data-theme', tema)
 
-  // Inicia la sincronización automática en segundo plano (cada 10 segundos)
-  marketStore.iniciarSincronizacionAuto(10)
+  // Inicia la sincronización automática en segundo plano (cada 60 segundos)
+  marketStore.iniciarSincronizacionAuto(60)
 })
 
 onUnmounted(() => {
