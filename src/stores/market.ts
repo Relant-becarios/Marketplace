@@ -1,6 +1,17 @@
 import { defineStore } from 'pinia'
 import { ref } from 'vue'
 import { fetchProductos, type Producto } from '@/api/inventory'
+import { db } from '@/firebase'
+import { ref as dbRef, onValue, update } from 'firebase/database'
+
+// Interfaz estricta para que TS conozca las columnas de Sheets
+type ProductoExtendido = Producto & {
+  SKU?: string | number
+  ID?: string | number
+  'no. De parte'?: string | number
+  NO_DE_PARTE?: string | number
+  Stock?: string | number
+}
 
 export const useMarketStore = defineStore('market', () => {
   const productos = ref<Producto[]>([])
@@ -8,79 +19,64 @@ export const useMarketStore = defineStore('market', () => {
   const productoSeleccionado = ref<Producto | null>(null)
   const isModalOpen = ref(false)
 
-  // Registro para neutralizar la caché de Google Sheets sin romper referencias
-  const descuentosAcumulados = ref<Record<string, number>>({})
-
   const cargarProductos = async () => {
     cargando.value = true
     try {
-      const data = await fetchProductos()
+      const dataSheets = await fetchProductos()
 
-      // Mutamos directamente el objeto para NO perder la referencia del modal
-      data.forEach((prod) => {
-        const key = String(prod.id || prod.SKU || prod['no. De parte'] || prod.NO_DE_PARTE || '')
-          .trim()
-          .toLowerCase()
-        const descontado = descuentosAcumulados.value[key] || 0
-        if (descontado > 0 && prod.Stock !== undefined) {
-          const stockActual = Number(prod.Stock) || 0
-          prod.Stock = Math.max(0, stockActual - descontado)
+      onValue(dbRef(db, 'inventario'), (snapshot) => {
+        const inventarioFb = snapshot.val() || {}
+        const actualizacionesNuevas: Record<string, number> = {}
+
+        const dataMezclada = dataSheets.map((prod) => {
+          const pExt = prod as ProductoExtendido
+          const key = String(pExt.id || pExt.SKU || pExt['no. De parte'] || pExt.NO_DE_PARTE || '')
+            .trim()
+            .toLowerCase()
+
+          if (inventarioFb[key] !== undefined) {
+            return { ...prod, Stock: inventarioFb[key] }
+          } else {
+            const stockInicial = Number(pExt.Stock) || 0
+            actualizacionesNuevas[key] = stockInicial
+            return { ...prod, Stock: stockInicial }
+          }
+        })
+
+        if (Object.keys(actualizacionesNuevas).length > 0) {
+          update(dbRef(db, 'inventario'), actualizacionesNuevas)
+        }
+
+        productos.value = dataMezclada
+
+        if (productoSeleccionado.value) {
+          const selExt = productoSeleccionado.value as ProductoExtendido
+          const selKey = String(
+            selExt.id || selExt.SKU || selExt['no. De parte'] || selExt.NO_DE_PARTE || '',
+          )
+            .trim()
+            .toLowerCase()
+
+          const prodEnVivo = dataMezclada.find((p) => {
+            const pExt2 = p as ProductoExtendido
+            const pKey = String(
+              pExt2.id || pExt2.SKU || pExt2['no. De parte'] || pExt2.NO_DE_PARTE || '',
+            )
+              .trim()
+              .toLowerCase()
+            return pKey === selKey
+          })
+
+          if (prodEnVivo && selExt.Stock !== undefined) {
+            productoSeleccionado.value.Stock = prodEnVivo.Stock
+          }
         }
       })
-
-      productos.value = data
-    } catch (error) {
+    } catch (error: unknown) {
       console.error('Error al cargar productos en el store:', error)
     } finally {
       cargando.value = false
     }
-  }
-
-  // DESCUENTO INSTANTÁNEO EN MEMORIA LOCAL
-  const descontarStockLocal = (itemsComprados: { id: string; cant: number }[]) => {
-    if (!itemsComprados || !Array.isArray(itemsComprados)) return
-
-    itemsComprados.forEach((item) => {
-      const idBuscado = String(item.id).trim().toLowerCase()
-
-      descuentosAcumulados.value[idBuscado] =
-        (descuentosAcumulados.value[idBuscado] || 0) + item.cant
-
-      const prod = productos.value.find((p) => {
-        const pId = String(p.id || '')
-          .trim()
-          .toLowerCase()
-        const pSKU = String(p.SKU || '')
-          .trim()
-          .toLowerCase()
-        const pParte = String(p['no. De parte'] || p.NO_DE_PARTE || '')
-          .trim()
-          .toLowerCase()
-        return pId === idBuscado || pSKU === idBuscado || pParte === idBuscado
-      })
-
-      if (prod && prod.Stock !== undefined) {
-        const stockActual = Number(prod.Stock) || 0
-        prod.Stock = Math.max(0, stockActual - item.cant)
-      }
-
-      if (productoSeleccionado.value) {
-        const selKey = String(
-          productoSeleccionado.value.id ||
-            productoSeleccionado.value.SKU ||
-            productoSeleccionado.value['no. De parte'] ||
-            productoSeleccionado.value.NO_DE_PARTE ||
-            '',
-        )
-          .trim()
-          .toLowerCase()
-
-        if (selKey === idBuscado && productoSeleccionado.value.Stock !== undefined) {
-          const selStock = Number(productoSeleccionado.value.Stock) || 0
-          productoSeleccionado.value.Stock = Math.max(0, selStock - item.cant)
-        }
-      }
-    })
   }
 
   const openModal = (prod: Producto) => {
@@ -99,7 +95,6 @@ export const useMarketStore = defineStore('market', () => {
     productoSeleccionado,
     isModalOpen,
     cargarProductos,
-    descontarStockLocal,
     openModal,
     closeModal,
   }

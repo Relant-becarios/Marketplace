@@ -3,7 +3,6 @@
     <NavBar />
 
     <main class="checkout-content">
-      <!-- BOTÓN DE VOLVER -->
       <button class="btn-back" @click="$router.push('/catalogo')">
         <svg
           xmlns="http://www.w3.org/2000/svg"
@@ -23,7 +22,7 @@
         Volver al catálogo
       </button>
 
-      <!-- PANTALLA DE ÉXITO (LA PALOMITA) -->
+      <!-- PANTALLA DE ÉXITO -->
       <div v-if="pagoExitoso" class="status-card success-card">
         <div class="status-icon">✅</div>
         <h2>¡Orden Procesada con Éxito!</h2>
@@ -37,7 +36,7 @@
       <!-- PANTALLA DE ERROR -->
       <div v-else-if="errorMensaje && !procesando" class="status-card error-card">
         <div class="status-icon">❌</div>
-        <h2>Ocurrió un problema</h2>
+        <h2>No se pudo procesar la orden</h2>
         <p class="status-desc">{{ errorMensaje }}</p>
         <button class="btn-secondary" @click="errorMensaje = ''">Intentar de nuevo</button>
       </div>
@@ -61,11 +60,11 @@
             :disabled="procesando || itemsConDetalle.length === 0"
             class="btn-confirmar"
           >
-            {{ procesando ? 'Procesando orden...' : 'CONFIRMAR Y GENERAR ORDEN' }}
+            {{ procesando ? 'Validando stock en tiempo real...' : 'CONFIRMAR Y GENERAR ORDEN' }}
           </button>
         </section>
 
-        <!-- RESUMEN DEL PEDIDO EN USD -->
+        <!-- RESUMEN DEL PEDIDO -->
         <aside class="summary-section">
           <h3>Resumen del Pedido</h3>
           <div v-if="itemsConDetalle.length === 0" class="empty-summary">
@@ -100,16 +99,26 @@
 import { ref, computed, onMounted } from 'vue'
 import { useCartStore } from '@/stores/cart'
 import { useAuthStore } from '@/stores/auth'
-import { useMarketStore } from '@/stores/market'
 import { fetchProductos, type Producto } from '@/api/inventory'
 import { db } from '@/firebase'
-import { ref as dbRef, set } from 'firebase/database'
+// IMPORTANTE: Aquí agregamos 'get'
+import { ref as dbRef, set, runTransaction, get } from 'firebase/database'
 import { getAuth } from 'firebase/auth'
 import NavBar from '@/components/NavBar.vue'
 
+// Definimos los campos extendidos también aquí para validación estricta de TS
+type ProductoExtendido = Producto & {
+  ID?: string | number
+  SKU?: string | number
+  'no. De parte'?: string | number
+  NO_DE_PARTE?: string | number
+  Producto?: string
+  Precio?: string | number
+  Imagen_URL?: string
+}
+
 const cartStore = useCartStore()
 const authStore = useAuthStore()
-const marketStore = useMarketStore()
 
 const procesando = ref(false)
 const pagoExitoso = ref(false)
@@ -117,13 +126,9 @@ const idOrden = ref('')
 const errorMensaje = ref('')
 const productosDetalle = ref<Producto[]>([])
 
-onMounted(() => {
-  cargarCatalogo()
-})
-
-const cargarCatalogo = async () => {
+onMounted(async () => {
   productosDetalle.value = await fetchProductos()
-}
+})
 
 const itemsConDetalle = computed(() => {
   if (!cartStore.items) return []
@@ -131,27 +136,32 @@ const itemsConDetalle = computed(() => {
     const targetId = String(item.id || '')
       .trim()
       .toLowerCase()
+
     const prod = productosDetalle.value.find((p) => {
-      const pId = String(p.id || '')
+      const pExt = p as ProductoExtendido
+      const pId = String(pExt.id || '')
         .trim()
         .toLowerCase()
-      const pID = String(p.ID || '')
+      const pID = String(pExt.ID || '')
         .trim()
         .toLowerCase()
-      const pSKU = String(p.SKU || '')
+      const pSKU = String(pExt.SKU || '')
         .trim()
         .toLowerCase()
-      const pParte = String(p['no. De parte'] || p.NO_DE_PARTE || '')
+      const pParte = String(pExt['no. De parte'] || pExt.NO_DE_PARTE || '')
         .trim()
         .toLowerCase()
       return pId === targetId || pID === targetId || pSKU === targetId || pParte === targetId
     })
+
+    const pExtFinal = (prod || {}) as ProductoExtendido
+
     return {
       id: item.id,
       cant: item.cant || 1,
-      nombre: prod?.Producto || item.id,
-      precio: parseFloat(String(prod?.Precio || 0)) || 0,
-      imagen: prod?.Imagen_URL || `https://via.placeholder.com/60`,
+      nombre: pExtFinal.Producto || item.id,
+      precio: parseFloat(String(pExtFinal.Precio || 0)) || 0,
+      imagen: pExtFinal.Imagen_URL || `https://via.placeholder.com/60`,
     }
   })
 })
@@ -160,7 +170,7 @@ const totalPrecio = computed(() => {
   return itemsConDetalle.value.reduce((acc, item) => acc + item.precio * item.cant, 0)
 })
 
-// FLUJO TRANSACCIONAL ESTRICTO
+// FLUJO TRANSACCIONAL ESTRICTO CON FIREBASE REALTIME
 const procesarOrdenLocal = async () => {
   const auth = getAuth()
   const firebaseUser = auth.currentUser || authStore.usuarioActual
@@ -190,32 +200,54 @@ const procesarOrdenLocal = async () => {
   }
 
   try {
-    const ordenLimpia = JSON.parse(JSON.stringify(nuevaOrden))
+    const inventarioRef = dbRef(db, 'inventario')
 
-    // 1. PASO CRÍTICO: Guardar en Firebase primero.
-    // Si esto falla, salta al catch y NO SE GENERA NADA MÁS.
-    await set(dbRef(db, `ordenes/${uid}/${generatedId}`), ordenLimpia)
+    // 1. FORZAR LECTURA: Aseguramos que tenemos la versión más reciente del servidor
+    await get(inventarioRef)
 
-    // 2. Actualizar stock en Google Sheets de fondo
-    descontarStockEnBackend()
+    const transaccion = await runTransaction(inventarioRef, (inventarioActual) => {
+      // Si Firebase está vacío, creamos un objeto vacío para FORZAR la validación, nunca lo dejamos pasar.
+      const nuevoInventario = inventarioActual ? { ...inventarioActual } : {}
 
-    // 3. Descuento en memoria visual protegido
-    try {
-      if (typeof marketStore.descontarStockLocal === 'function') {
-        marketStore.descontarStockLocal(nuevaOrden.items)
+      for (const item of nuevaOrden.items) {
+        const key = String(item.id).trim().toLowerCase()
+        // Si el producto no existe en la base, asumimos que tiene 0 stock
+        const stockDisponible = nuevoInventario[key] || 0
+
+        if (stockDisponible < item.cant) {
+          return // Esto devuelve undefined y ABORTA la transacción de inmediato
+        }
+
+        nuevoInventario[key] = stockDisponible - item.cant
       }
-    } catch (e) {
-      console.warn('Advertencia visual de stock:', e)
+
+      return nuevoInventario
+    })
+
+    if (!transaccion.committed) {
+      throw new Error(
+        '¡Ups! Uno o más artículos de tu carrito acaban de agotarse. Por favor revisa el catálogo nuevamente.',
+      )
     }
 
-    // 4. ÉXITO CONFIRMADO: Mostrar palomita y limpiar carrito
+    const ordenLimpia = JSON.parse(JSON.stringify(nuevaOrden))
+    await set(dbRef(db, `ordenes/${uid}/${generatedId}`), ordenLimpia)
+
+    descontarStockEnBackend()
+
     cartStore.vaciarCarrito()
     idOrden.value = generatedId
     pagoExitoso.value = true
   } catch (error: unknown) {
     console.error('Error al generar la orden en Firebase:', error)
-    errorMensaje.value =
-      'Hubo un error al procesar la orden. No se realizó ningún cargo ni se generó el pedido.'
+
+    // Tratamiento estricto de error tipo unknown
+    if (error instanceof Error) {
+      errorMensaje.value = error.message
+    } else {
+      errorMensaje.value =
+        'Hubo un error al procesar la orden. No se realizó ningún cargo ni se generó el pedido.'
+    }
   } finally {
     procesando.value = false
   }
@@ -233,7 +265,7 @@ const descontarStockEnBackend = async () => {
         items: itemsConDetalle.value.map((item) => ({ id: item.id, cantidad: item.cant })),
       }),
     })
-  } catch (error) {
+  } catch (error: unknown) {
     console.error('Error en Sheets:', error)
   }
 }
@@ -245,13 +277,11 @@ const descontarStockEnBackend = async () => {
   background-color: var(--bg-main, #f4f6f8);
   color: var(--text-main, #1c1e21);
 }
-
 .checkout-content {
   max-width: 1100px;
   margin: 0 auto;
   padding: 30px 20px 80px 20px;
 }
-
 .btn-back {
   display: inline-flex;
   align-items: center;
@@ -268,19 +298,16 @@ const descontarStockEnBackend = async () => {
     color 0.2s ease,
     transform 0.2s ease;
 }
-
 .btn-back:hover {
   color: var(--accent, #e52e2e);
   transform: translateX(-5px);
 }
-
 .checkout-grid {
   display: grid;
   grid-template-columns: 1.2fr 1fr;
   gap: 30px;
   align-items: start;
 }
-
 .payment-section,
 .summary-section {
   background: var(--bg-panel, #ffffff);
@@ -289,7 +316,6 @@ const descontarStockEnBackend = async () => {
   padding: 28px;
   box-shadow: 0 4px 15px rgba(0, 0, 0, 0.03);
 }
-
 .payment-section h2,
 .summary-section h3 {
   font-size: 1.3rem;
@@ -297,13 +323,11 @@ const descontarStockEnBackend = async () => {
   margin-top: 0;
   margin-bottom: 8px;
 }
-
 .mp-subtitle {
   color: var(--text-muted, #6a737d);
   font-size: 0.9rem;
   margin-bottom: 25px;
 }
-
 .user-info-box {
   background: var(--bg-input, #f8f9fa);
   padding: 15px;
@@ -312,11 +336,9 @@ const descontarStockEnBackend = async () => {
   margin-bottom: 20px;
   font-size: 0.95rem;
 }
-
 .user-info-box p {
   margin: 5px 0;
 }
-
 .btn-confirmar {
   width: 100%;
   background: #e52e2e;
@@ -329,23 +351,19 @@ const descontarStockEnBackend = async () => {
   cursor: pointer;
   transition: background-color 0.2s ease;
 }
-
 .btn-confirmar:hover:not(:disabled) {
   background: #c22525;
 }
-
 .btn-confirmar:disabled {
   opacity: 0.6;
   cursor: not-allowed;
 }
-
 .empty-summary {
   text-align: center;
   color: var(--text-muted, #6a737d);
   padding: 30px 0;
   font-style: italic;
 }
-
 .items-list {
   display: flex;
   flex-direction: column;
@@ -355,7 +373,6 @@ const descontarStockEnBackend = async () => {
   padding-right: 6px;
   margin-top: 15px;
 }
-
 .summary-item {
   display: flex;
   align-items: center;
@@ -363,7 +380,6 @@ const descontarStockEnBackend = async () => {
   padding-bottom: 14px;
   border-bottom: 1px solid var(--border, #eef2f5);
 }
-
 .item-img-wrapper {
   width: 65px;
   height: 65px;
@@ -376,49 +392,41 @@ const descontarStockEnBackend = async () => {
   justify-content: center;
   padding: 4px;
 }
-
 .item-img {
   max-width: 100%;
   max-height: 100%;
   object-fit: contain;
 }
-
 .item-info {
   flex-grow: 1;
   display: flex;
   flex-direction: column;
 }
-
 .item-title {
   font-size: 0.9rem;
   font-weight: 700;
   margin: 0 0 6px 0;
   line-height: 1.3;
 }
-
 .item-meta {
   display: flex;
   justify-content: space-between;
   align-items: center;
 }
-
 .item-qty {
   font-size: 0.8rem;
   color: var(--text-muted, #6a737d);
   font-weight: 600;
 }
-
 .item-price {
   font-size: 0.9rem;
   font-weight: 800;
   color: var(--accent, #e52e2e);
 }
-
 .order-divider {
   border-top: 2px dashed var(--border, #d1d5da);
   margin: 20px 0;
 }
-
 .summary-total-row {
   display: flex;
   justify-content: space-between;
@@ -426,13 +434,11 @@ const descontarStockEnBackend = async () => {
   font-size: 1.15rem;
   font-weight: 800;
 }
-
 .total-amount {
   color: var(--accent, #e52e2e);
   font-size: 1.25rem;
   font-weight: 900;
 }
-
 .status-card {
   text-align: center;
   background: var(--bg-panel, #ffffff);
@@ -443,23 +449,19 @@ const descontarStockEnBackend = async () => {
   margin: 40px auto;
   box-shadow: 0 10px 30px rgba(0, 0, 0, 0.05);
 }
-
 .status-icon {
   font-size: 55px;
   margin-bottom: 15px;
 }
-
 .status-card h2 {
   font-size: 1.5rem;
   margin-bottom: 10px;
 }
-
 .status-desc {
   color: var(--text-muted, #6a737d);
   font-size: 0.95rem;
   margin-bottom: 25px;
 }
-
 .btn-primary,
 .btn-secondary {
   border: none;
@@ -469,18 +471,15 @@ const descontarStockEnBackend = async () => {
   font-size: 0.95rem;
   cursor: pointer;
 }
-
 .btn-primary {
   background: var(--accent, #e52e2e);
   color: #ffffff;
 }
-
 .btn-secondary {
   background: var(--bg-input, #eef2f5);
   color: var(--text-main);
   border: 1px solid var(--border, #d1d5da);
 }
-
 @media (max-width: 850px) {
   .checkout-grid {
     grid-template-columns: 1fr;
