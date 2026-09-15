@@ -51,35 +51,112 @@
                   <span class="order-id">Orden #{{ orden.id }}</span>
                   <span class="order-date">{{ orden.fecha || 'Fecha reciente' }}</span>
                 </div>
-                <span class="order-total">${{ Number(orden.total || 0).toFixed(2) }} MXN</span>
+                <!-- MONEDA USD -->
+                <span class="order-total">${{ Number(orden.total || 0).toFixed(2) }} USD</span>
               </div>
 
-              <div class="tracker-container">
-                <div class="tracker-bar">
-                  <div
-                    class="tracker-progress"
-                    :style="{ width: obtenerPorcentaje(orden.estado) }"
-                  ></div>
+              <!-- TRACKER CON ÍCONOS Y LÍNEAS SOLIDADS / PUNTEADAS -->
+              <div class="stepper-container">
+                <!-- Paso 1: En preparación -->
+                <div :class="['step-item', { active: obtenerNivelStep(orden.estado) >= 1 }]">
+                  <div class="step-circle">
+                    <svg
+                      viewBox="0 0 24 24"
+                      width="26"
+                      height="26"
+                      fill="none"
+                      stroke="currentColor"
+                      stroke-width="2"
+                    >
+                      <path
+                        d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"
+                      ></path>
+                      <rect x="8" y="2" width="8" height="4" rx="1" ry="1"></rect>
+                      <path d="M9 12h6"></path>
+                      <path d="M9 16h6"></path>
+                    </svg>
+                  </div>
+                  <span class="step-title">En preparación</span>
                 </div>
-                <div class="tracker-steps">
-                  <div :class="['step', { active: obtenerNivelStep(orden.estado) >= 1 }]">
-                    <div class="dot"></div>
-                    <span>En preparación</span>
+
+                <!-- Línea 1-2 -->
+                <div
+                  :class="['step-line', obtenerNivelStep(orden.estado) >= 2 ? 'solid' : 'dotted']"
+                ></div>
+
+                <!-- Paso 2: Empacado -->
+                <div :class="['step-item', { active: obtenerNivelStep(orden.estado) >= 2 }]">
+                  <div class="step-circle">
+                    <svg
+                      viewBox="0 0 24 24"
+                      width="26"
+                      height="26"
+                      fill="none"
+                      stroke="currentColor"
+                      stroke-width="2"
+                    >
+                      <path
+                        d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"
+                      ></path>
+                      <polyline points="3.27 6.96 12 12.01 20.73 6.96"></polyline>
+                      <line x1="12" y1="22.08" x2="12" y2="12"></line>
+                    </svg>
                   </div>
-                  <div :class="['step', { active: obtenerNivelStep(orden.estado) >= 2 }]">
-                    <div class="dot"></div>
-                    <span>En camino</span>
+                  <span class="step-title">Empacado</span>
+                </div>
+
+                <!-- Línea 2-3 -->
+                <div
+                  :class="['step-line', obtenerNivelStep(orden.estado) >= 3 ? 'solid' : 'dotted']"
+                ></div>
+
+                <!-- Paso 3: En camino -->
+                <div :class="['step-item', { active: obtenerNivelStep(orden.estado) >= 3 }]">
+                  <div class="step-circle">
+                    <svg
+                      viewBox="0 0 24 24"
+                      width="26"
+                      height="26"
+                      fill="none"
+                      stroke="currentColor"
+                      stroke-width="2"
+                    >
+                      <rect x="1" y="3" width="15" height="13"></rect>
+                      <polygon points="16 8 20 8 23 11 23 16 16 16 16 8"></polygon>
+                      <circle cx="5.5" cy="18.5" r="2.5"></circle>
+                      <circle cx="18.5" cy="18.5" r="2.5"></circle>
+                    </svg>
                   </div>
-                  <div :class="['step', { active: obtenerNivelStep(orden.estado) >= 3 }]">
-                    <div class="dot"></div>
-                    <span>Entregado</span>
+                  <span class="step-title">En camino</span>
+                </div>
+
+                <!-- Línea 3-4 -->
+                <div
+                  :class="['step-line', obtenerNivelStep(orden.estado) >= 4 ? 'solid' : 'dotted']"
+                ></div>
+
+                <!-- Paso 4: Entregado -->
+                <div :class="['step-item', { active: obtenerNivelStep(orden.estado) >= 4 }]">
+                  <div class="step-circle">
+                    <svg
+                      viewBox="0 0 24 24"
+                      width="26"
+                      height="26"
+                      fill="none"
+                      stroke="currentColor"
+                      stroke-width="2"
+                    >
+                      <path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"></path>
+                      <polyline points="9 22 9 12 15 12 15 22"></polyline>
+                    </svg>
                   </div>
+                  <span class="step-title">Entregado</span>
                 </div>
               </div>
 
               <div class="order-items" v-if="orden.items && orden.items.length">
                 <div v-for="item in orden.items" :key="item.id" class="order-item-mini">
-                  <span class="item-qty">{{ item.cant }}x</span>
+                  <span class="item-qty">{{ item.cant || item.cantidad || 1 }}x</span>
                   <span class="item-name">{{ item.nombre || item.id }}</span>
                 </div>
               </div>
@@ -129,7 +206,6 @@
               <h4>{{ prod.Producto }}</h4>
               <p class="price">${{ Number(prod.Precio || 0).toFixed(2) }} USD</p>
 
-              <!-- ABRE EL MODAL Y REDIRIGE AL CATÁLOGO -->
               <button class="btn-action" @click="volverAVer(prod)">Volver a ver</button>
             </div>
           </div>
@@ -159,7 +235,8 @@ import NavBar from '@/components/NavBar.vue'
 
 interface ItemOrden {
   id: string
-  cant: number
+  cant?: number
+  cantidad?: number
   nombre?: string
 }
 
@@ -180,7 +257,8 @@ const cartStore = useCartStore()
 const favoritesStore = useFavoritesStore()
 const marketStore = useMarketStore()
 
-const tabActiva = ref<'pedidos' | 'favoritos' | 'recientes'>('pedidos')
+// Variable string directa para prevenir errores de inferencia en TypeScript
+const tabActiva = ref<string>('pedidos')
 const pedidos = ref<Orden[]>([])
 const vistosRecientemente = ref<ProductoHistorial[]>([])
 
@@ -189,7 +267,7 @@ const usuarioInicial = computed(() => {
   return nombre.charAt(0).toUpperCase()
 })
 
-const cambiarTab = (tab: 'pedidos' | 'favoritos' | 'recientes') => {
+const cambiarTab = (tab: string) => {
   tabActiva.value = tab
   if (tab === 'recientes' || tab === 'favoritos') {
     cargarDatos()
@@ -198,16 +276,16 @@ const cambiarTab = (tab: 'pedidos' | 'favoritos' | 'recientes') => {
 
 const obtenerNivelStep = (estado: string = '') => {
   const st = estado.toLowerCase()
-  if (st.includes('entregado')) return 3
-  if (st.includes('camino') || st.includes('enviado')) return 2
+  if (st.includes('entregado') || st.includes('delivered')) return 4
+  if (
+    st.includes('camino') ||
+    st.includes('transito') ||
+    st.includes('transit') ||
+    st.includes('enviado')
+  )
+    return 3
+  if (st.includes('empacado') || st.includes('packed') || st.includes('listo')) return 2
   return 1
-}
-
-const obtenerPorcentaje = (estado: string = '') => {
-  const nivel = obtenerNivelStep(estado)
-  if (nivel === 3) return '100%'
-  if (nivel === 2) return '50%'
-  return '10%'
 }
 
 const agregarAlCarrito = (prod: Producto) => {
@@ -226,16 +304,14 @@ const cargarDatos = async () => {
   const uid = authStore.usuarioActual.uid
 
   try {
-    // 1. Cargar Pedidos desde Firebase
     const snapPedidos = await get(dbRef(db, `ordenes/${uid}`))
     if (snapPedidos.exists()) {
-      pedidos.value = Object.values(snapPedidos.val()) as Orden[]
+      const rawPedidos = Object.values(snapPedidos.val()) as Orden[]
+      pedidos.value = rawPedidos.reverse()
     }
 
-    // 2. Cargar Favoritos desde Firebase
     await favoritesStore.cargarFavoritos()
 
-    // 3. Cargar Historial de Navegación desde Firebase
     const snapHistorial = await get(dbRef(db, `historial/${uid}`))
     if (snapHistorial.exists()) {
       const rawHistorial = Object.values(snapHistorial.val()) as ProductoHistorial[]
@@ -248,7 +324,6 @@ const cargarDatos = async () => {
   }
 }
 
-// Ejecuta la carga inmediatamente cuando la sesión de Firebase termina de resolverse
 watch(
   () => authStore.usuarioActual,
   (usuario) => {
@@ -291,7 +366,7 @@ onMounted(() => {
 .avatar {
   width: 65px;
   height: 65px;
-  background: var(--accent, #ff0000);
+  background: var(--accent, #e52e2e);
   color: white;
   border-radius: 50%;
   display: flex;
@@ -333,8 +408,8 @@ onMounted(() => {
 }
 
 .tab-btn.active {
-  color: var(--accent, #ff0000);
-  border-bottom-color: var(--accent, #ff0000);
+  color: var(--accent, #e52e2e);
+  border-bottom-color: var(--accent, #e52e2e);
 }
 
 .tab-content {
@@ -358,94 +433,118 @@ onMounted(() => {
 }
 
 .order-card {
-  background: var(--bg-input, #eef2f5);
+  background: #f0f3f5;
   border: 1px solid var(--border, #d1d5da);
-  border-radius: 10px;
-  padding: 20px;
+  border-radius: 12px;
+  padding: 24px 30px;
 }
 
 .order-card-header {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  margin-bottom: 15px;
+  margin-bottom: 25px;
 }
 
 .order-id {
   font-weight: 800;
-  font-size: 1.05rem;
+  font-size: 1.1rem;
   margin-right: 12px;
 }
 
 .order-date {
-  font-size: 0.85rem;
+  font-size: 0.88rem;
   color: var(--text-muted, #6a737d);
 }
 
 .order-total {
-  font-weight: 800;
-  color: var(--accent, #ff0000);
-  font-size: 1.1rem;
+  font-weight: 900;
+  color: var(--accent, #e52e2e);
+  font-size: 1.15rem;
 }
 
-.tracker-container {
-  margin: 20px 0;
-  position: relative;
-}
-
-.tracker-bar {
-  height: 6px;
-  background: var(--border, #d1d5da);
-  border-radius: 4px;
-  position: relative;
-  overflow: hidden;
-}
-
-.tracker-progress {
-  height: 100%;
-  background: var(--accent, #ff0000);
-  transition: width 0.4s ease;
-}
-
-.tracker-steps {
+/* TRACKER ESTILO EXACTO A LA IMAGEN */
+.stepper-container {
   display: flex;
+  align-items: center;
   justify-content: space-between;
-  margin-top: -10px;
+  margin: 30px 10px 35px 10px;
+  position: relative;
 }
 
-.step {
+.step-item {
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 6px;
-  font-size: 0.8rem;
-  color: var(--text-muted, #6a737d);
-  font-weight: 600;
+  gap: 10px;
+  z-index: 2;
+  min-width: 80px;
 }
 
-.step.active {
-  color: var(--accent, #ff0000);
-}
-
-.step .dot {
-  width: 14px;
-  height: 14px;
+.step-circle {
+  width: 62px;
+  height: 62px;
   border-radius: 50%;
-  background: var(--border, #d1d5da);
-  border: 2px solid var(--bg-panel, #ffffff);
+  background: #8b939c;
+  color: #ffffff;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: background-color 0.3s ease;
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.08);
 }
 
-.step.active .dot {
-  background: var(--accent, #ff0000);
+.step-item.active .step-circle {
+  background: #e52e2e;
+}
+
+.step-title {
+  font-size: 0.85rem;
+  font-weight: 700;
+  color: #7f8c8d;
+  text-align: center;
+}
+
+.step-item.active .step-title {
+  color: #e52e2e;
+}
+
+/* LÍNEAS DE CONEXIÓN ENTRE CÍRCULOS */
+.step-line {
+  flex: 1;
+  height: 6px;
+  margin: 0 -5px 25px -5px;
+  z-index: 1;
+  border-radius: 3px;
+}
+
+.step-line.solid {
+  background: #e52e2e;
+}
+
+.step-line.dotted {
+  background: radial-gradient(circle, #8b939c 35%, transparent 35%);
+  background-size: 12px 12px;
+  background-position: center;
 }
 
 .order-items {
-  border-top: 1px dashed var(--border, #d1d5da);
-  padding-top: 12px;
+  border-top: 1px dashed #d1d5da;
+  padding-top: 16px;
   display: flex;
   flex-wrap: wrap;
-  gap: 15px;
-  font-size: 0.85rem;
+  gap: 20px;
+  font-size: 0.88rem;
+}
+
+.order-item-mini {
+  display: flex;
+  gap: 6px;
+  font-weight: 700;
+}
+
+.item-qty {
+  color: var(--text-main);
 }
 
 .products-grid {
@@ -481,14 +580,14 @@ onMounted(() => {
 }
 
 .prod-card .price {
-  color: var(--accent, #ff0000);
+  color: var(--accent, #e52e2e);
   font-weight: 800;
   margin-bottom: 10px;
 }
 
 .btn-action {
   width: 100%;
-  background: var(--accent, #ff0000);
+  background: var(--accent, #e52e2e);
   color: white;
   border: none;
   padding: 8px;
@@ -500,7 +599,7 @@ onMounted(() => {
 }
 
 .btn-action:hover {
-  background: #d32f2f;
+  background: #c22525;
 }
 
 .login-prompt {
@@ -509,7 +608,7 @@ onMounted(() => {
 }
 
 .btn-login-prompt {
-  background: var(--accent, #ff0000);
+  background: var(--accent, #e52e2e);
   color: white;
   border: none;
   padding: 12px 24px;
@@ -517,5 +616,19 @@ onMounted(() => {
   font-weight: bold;
   cursor: pointer;
   margin-top: 15px;
+}
+
+@media (max-width: 680px) {
+  .step-circle {
+    width: 46px;
+    height: 46px;
+  }
+  .step-circle svg {
+    width: 20px;
+    height: 20px;
+  }
+  .step-title {
+    font-size: 0.72rem;
+  }
 }
 </style>

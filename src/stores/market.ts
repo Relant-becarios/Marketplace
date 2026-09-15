@@ -1,93 +1,106 @@
 import { defineStore } from 'pinia'
 import { ref } from 'vue'
-import type { Producto } from '@/api/inventory'
-import { db } from '@/firebase'
-import { ref as dbRef, set } from 'firebase/database'
-import { getAuth } from 'firebase/auth'
-
-const INVALID_KEY_REGEX = new RegExp('[.#$\\[\\]/]', 'g')
-
-// Sanitiza recursivamente y omite llaves vacías
-const sanitizeForFirebase = (data: unknown): unknown => {
-  if (data === null || data === undefined) return null
-  if (typeof data !== 'object') return data
-
-  if (Array.isArray(data)) {
-    return data.map(sanitizeForFirebase)
-  }
-
-  const obj = data as Record<string, unknown>
-  const sanitized: Record<string, unknown> = {}
-
-  for (const key of Object.keys(obj)) {
-    const val = obj[key]
-    if (val !== undefined) {
-      const cleanKey = key.replace(INVALID_KEY_REGEX, '_').trim()
-      // Firebase NO permite llaves vacías. Si la llave está en blanco, se ignora.
-      if (cleanKey !== '') {
-        sanitized[cleanKey] = sanitizeForFirebase(val)
-      }
-    }
-  }
-  return sanitized
-}
+import { fetchProductos, type Producto } from '@/api/inventory'
 
 export const useMarketStore = defineStore('market', () => {
-  const selectedCategory = ref<string>('Todas')
-  const searchQuery = ref<string>('')
-  const availableCategories = ref<string[]>(['Refacciones', 'Válvulas', 'Boquillas', 'Accesorios'])
+  const productos = ref<Producto[]>([])
+  const cargando = ref(false)
+  const productoSeleccionado = ref<Producto | null>(null)
+  const isModalOpen = ref(false)
 
-  const selectedProduct = ref<Producto | null>(null)
-  const isModalOpen = ref<boolean>(false)
+  // Registro para neutralizar la caché de Google Sheets sin romper referencias
+  const descuentosAcumulados = ref<Record<string, number>>({})
 
-  const setCategories = (categories: string[]) => {
-    availableCategories.value = categories
-  }
-
-  const obtenerKeyValida = (producto: Producto): string => {
-    const rawId = producto.id || producto.SKU || producto.Producto || 'item_sin_id'
-    return String(rawId).replace(INVALID_KEY_REGEX, '_').trim()
-  }
-
-  const registrarHistorialFirebase = async (producto: Producto) => {
-    const auth = getAuth()
-    const user = auth.currentUser
-
-    if (!user) return
-
-    const idClave = obtenerKeyValida(producto)
-    const productoLimpio = sanitizeForFirebase(producto)
-
+  const cargarProductos = async () => {
+    cargando.value = true
     try {
-      await set(dbRef(db, `historial/${user.uid}/${idClave}`), {
-        ...(productoLimpio as Record<string, unknown>),
-        vistoEn: Date.now(),
+      const data = await fetchProductos()
+
+      // Mutamos directamente el objeto para NO perder la referencia del modal
+      data.forEach((prod) => {
+        const key = String(prod.id || prod.SKU || prod['no. De parte'] || prod.NO_DE_PARTE || '')
+          .trim()
+          .toLowerCase()
+        const descontado = descuentosAcumulados.value[key] || 0
+        if (descontado > 0 && prod.Stock !== undefined) {
+          const stockActual = Number(prod.Stock) || 0
+          prod.Stock = Math.max(0, stockActual - descontado)
+        }
       })
-    } catch (e) {
-      console.error('[Firebase Error] No se pudo guardar en el historial:', e)
+
+      productos.value = data
+    } catch (error) {
+      console.error('Error al cargar productos en el store:', error)
+    } finally {
+      cargando.value = false
     }
   }
 
-  const openModal = (producto: Producto) => {
-    selectedProduct.value = producto
+  // DESCUENTO INSTANTÁNEO EN MEMORIA LOCAL
+  const descontarStockLocal = (itemsComprados: { id: string; cant: number }[]) => {
+    if (!itemsComprados || !Array.isArray(itemsComprados)) return
+
+    itemsComprados.forEach((item) => {
+      const idBuscado = String(item.id).trim().toLowerCase()
+
+      descuentosAcumulados.value[idBuscado] =
+        (descuentosAcumulados.value[idBuscado] || 0) + item.cant
+
+      const prod = productos.value.find((p) => {
+        const pId = String(p.id || '')
+          .trim()
+          .toLowerCase()
+        const pSKU = String(p.SKU || '')
+          .trim()
+          .toLowerCase()
+        const pParte = String(p['no. De parte'] || p.NO_DE_PARTE || '')
+          .trim()
+          .toLowerCase()
+        return pId === idBuscado || pSKU === idBuscado || pParte === idBuscado
+      })
+
+      if (prod && prod.Stock !== undefined) {
+        const stockActual = Number(prod.Stock) || 0
+        prod.Stock = Math.max(0, stockActual - item.cant)
+      }
+
+      if (productoSeleccionado.value) {
+        const selKey = String(
+          productoSeleccionado.value.id ||
+            productoSeleccionado.value.SKU ||
+            productoSeleccionado.value['no. De parte'] ||
+            productoSeleccionado.value.NO_DE_PARTE ||
+            '',
+        )
+          .trim()
+          .toLowerCase()
+
+        if (selKey === idBuscado && productoSeleccionado.value.Stock !== undefined) {
+          const selStock = Number(productoSeleccionado.value.Stock) || 0
+          productoSeleccionado.value.Stock = Math.max(0, selStock - item.cant)
+        }
+      }
+    })
+  }
+
+  const openModal = (prod: Producto) => {
+    productoSeleccionado.value = prod
     isModalOpen.value = true
-    registrarHistorialFirebase(producto)
   }
 
   const closeModal = () => {
-    selectedProduct.value = null
     isModalOpen.value = false
+    productoSeleccionado.value = null
   }
 
   return {
-    selectedCategory,
-    searchQuery,
-    availableCategories,
-    selectedProduct,
+    productos,
+    cargando,
+    productoSeleccionado,
     isModalOpen,
-    setCategories,
+    cargarProductos,
+    descontarStockLocal,
     openModal,
     closeModal,
-    registrarHistorialFirebase,
   }
 })

@@ -3,7 +3,7 @@
     <NavBar />
 
     <main class="checkout-content">
-      <!-- BOTÓN DE VOLVER (FLECHITA) -->
+      <!-- BOTÓN DE VOLVER -->
       <button class="btn-back" @click="$router.push('/catalogo')">
         <svg
           xmlns="http://www.w3.org/2000/svg"
@@ -23,7 +23,7 @@
         Volver al catálogo
       </button>
 
-      <!-- PANTALLA DE ÉXITO TRAS CONFIRMAR LA ORDEN -->
+      <!-- PANTALLA DE ÉXITO (LA PALOMITA) -->
       <div v-if="pagoExitoso" class="status-card success-card">
         <div class="status-icon">✅</div>
         <h2>¡Orden Procesada con Éxito!</h2>
@@ -34,7 +34,7 @@
         <button class="btn-primary" @click="$router.push('/perfil')">Ver mis pedidos</button>
       </div>
 
-      <!-- PANTALLA DE ERROR / FALLO -->
+      <!-- PANTALLA DE ERROR -->
       <div v-else-if="errorMensaje && !procesando" class="status-card error-card">
         <div class="status-icon">❌</div>
         <h2>Ocurrió un problema</h2>
@@ -42,13 +42,12 @@
         <button class="btn-secondary" @click="errorMensaje = ''">Intentar de nuevo</button>
       </div>
 
-      <!-- VISTA PRINCIPAL (RESUMEN Y BOTÓN DE CONFIRMACIÓN) -->
+      <!-- VISTA PRINCIPAL DEL CHECKOUT -->
       <div v-else class="checkout-grid">
         <section class="payment-section">
           <h2>Finalizar Pedido</h2>
           <p class="mp-subtitle">Confirma tu orden para registrarla en el sistema.</p>
 
-          <!-- Formulario de datos básicos -->
           <div class="user-info-box">
             <p>
               <strong>Cliente:</strong>
@@ -66,14 +65,12 @@
           </button>
         </section>
 
-        <!-- Resumen del Pedido (Items del Carrito) -->
+        <!-- RESUMEN DEL PEDIDO EN USD -->
         <aside class="summary-section">
           <h3>Resumen del Pedido</h3>
-
           <div v-if="itemsConDetalle.length === 0" class="empty-summary">
             No hay productos en el carrito.
           </div>
-
           <div v-else class="items-list">
             <div v-for="item in itemsConDetalle" :key="item.id" class="summary-item">
               <div class="item-img-wrapper">
@@ -88,9 +85,7 @@
               </div>
             </div>
           </div>
-
           <div class="order-divider"></div>
-
           <div class="summary-total-row">
             <span>Total Estimado:</span>
             <span class="total-amount">${{ totalPrecio.toFixed(2) }} USD</span>
@@ -105,22 +100,22 @@
 import { ref, computed, onMounted } from 'vue'
 import { useCartStore } from '@/stores/cart'
 import { useAuthStore } from '@/stores/auth'
+import { useMarketStore } from '@/stores/market'
 import { fetchProductos, type Producto } from '@/api/inventory'
 import { db } from '@/firebase'
 import { ref as dbRef, set } from 'firebase/database'
+import { getAuth } from 'firebase/auth'
 import NavBar from '@/components/NavBar.vue'
 
 const cartStore = useCartStore()
 const authStore = useAuthStore()
+const marketStore = useMarketStore()
 
 const procesando = ref(false)
 const pagoExitoso = ref(false)
 const idOrden = ref('')
 const errorMensaje = ref('')
 const productosDetalle = ref<Producto[]>([])
-
-// Expresión regular para limpiar llaves en Firebase
-const INVALID_KEY_REGEX = new RegExp('[.#$\\[\\]/]', 'g')
 
 onMounted(() => {
   cargarCatalogo()
@@ -130,10 +125,8 @@ const cargarCatalogo = async () => {
   productosDetalle.value = await fetchProductos()
 }
 
-// Mapeo detallado del carrito
 const itemsConDetalle = computed(() => {
   if (!cartStore.items) return []
-
   return cartStore.items.map((item) => {
     const targetId = String(item.id || '')
       .trim()
@@ -148,7 +141,10 @@ const itemsConDetalle = computed(() => {
       const pSKU = String(p.SKU || '')
         .trim()
         .toLowerCase()
-      return pId === targetId || pID === targetId || pSKU === targetId
+      const pParte = String(p['no. De parte'] || p.NO_DE_PARTE || '')
+        .trim()
+        .toLowerCase()
+      return pId === targetId || pID === targetId || pSKU === targetId || pParte === targetId
     })
     return {
       id: item.id,
@@ -164,83 +160,72 @@ const totalPrecio = computed(() => {
   return itemsConDetalle.value.reduce((acc, item) => acc + item.precio * item.cant, 0)
 })
 
-// Sanitizador para Firebase (evita errores con puntos y caracteres especiales)
-const sanitizeForFirebase = (data: unknown): unknown => {
-  if (data === null || data === undefined) return null
-  if (typeof data !== 'object') return data
-  if (Array.isArray(data)) return data.map(sanitizeForFirebase)
-
-  const obj = data as Record<string, unknown>
-  const sanitized: Record<string, unknown> = {}
-
-  for (const key of Object.keys(obj)) {
-    const val = obj[key]
-    if (val !== undefined) {
-      const cleanKey = key.replace(INVALID_KEY_REGEX, '_').trim()
-      if (cleanKey !== '') {
-        sanitized[cleanKey] = sanitizeForFirebase(val)
-      }
-    }
-  }
-  return sanitized
-}
-
-// PROCESAR ORDEN EN FIREBASE Y DESCONTAR STOCK EN GOOGLE SHEETS
+// FLUJO TRANSACCIONAL ESTRICTO
 const procesarOrdenLocal = async () => {
-  if (!authStore.usuarioActual) {
-    errorMensaje.value = 'Debes iniciar sesión para procesar la orden.'
+  const auth = getAuth()
+  const firebaseUser = auth.currentUser || authStore.usuarioActual
+
+  if (!firebaseUser || !firebaseUser.uid) {
+    errorMensaje.value = 'La sesión de usuario no está activa. Por favor, inicia sesión de nuevo.'
     return
   }
 
   procesando.value = true
   errorMensaje.value = ''
 
-  const uid = authStore.usuarioActual.uid
+  const uid = firebaseUser.uid
   const generatedId = 'ORD-' + Date.now()
 
   const nuevaOrden = {
     id: generatedId,
     fecha: new Date().toLocaleDateString('es-MX'),
-    total: totalPrecio.value,
+    total: Number(totalPrecio.value) || 0,
     estado: 'En preparación',
     items: itemsConDetalle.value.map((i) => ({
-      id: String(i.id),
-      cant: i.cant,
-      nombre: i.nombre,
-      precio: i.precio,
+      id: String(i.id || ''),
+      cant: Number(i.cant) || 1,
+      nombre: String(i.nombre || i.id || 'Producto'),
+      precio: Number(i.precio) || 0,
     })),
   }
 
   try {
-    // 1. Guardar la orden en Firebase
-    const ordenLimpia = sanitizeForFirebase(nuevaOrden)
+    const ordenLimpia = JSON.parse(JSON.stringify(nuevaOrden))
+
+    // 1. PASO CRÍTICO: Guardar en Firebase primero.
+    // Si esto falla, salta al catch y NO SE GENERA NADA MÁS.
     await set(dbRef(db, `ordenes/${uid}/${generatedId}`), ordenLimpia)
 
-    // 2. Descontar stock en Google Sheets
-    await descontarStockEnBackend()
+    // 2. Actualizar stock en Google Sheets de fondo
+    descontarStockEnBackend()
 
-    // 3. Vaciar carrito y mostrar éxito
+    // 3. Descuento en memoria visual protegido
+    try {
+      if (typeof marketStore.descontarStockLocal === 'function') {
+        marketStore.descontarStockLocal(nuevaOrden.items)
+      }
+    } catch (e) {
+      console.warn('Advertencia visual de stock:', e)
+    }
+
+    // 4. ÉXITO CONFIRMADO: Mostrar palomita y limpiar carrito
     cartStore.vaciarCarrito()
     idOrden.value = generatedId
     pagoExitoso.value = true
   } catch (error: unknown) {
-    console.error('Error al generar la orden:', error)
-    errorMensaje.value = 'No se pudo guardar la orden. Revisa tu conexión a internet.'
+    console.error('Error al generar la orden en Firebase:', error)
+    errorMensaje.value =
+      'Hubo un error al procesar la orden. No se realizó ningún cargo ni se generó el pedido.'
   } finally {
     procesando.value = false
   }
 }
 
-// FUNCIÓN QUE LLAMA AL WEBHOOK DE GOOGLE SHEETS
 const descontarStockEnBackend = async () => {
   if (itemsConDetalle.value.length === 0) return
-
-  // URL exacta de tu Google Apps Script
   const SCRIPT_URL =
     'https://script.google.com/macros/s/AKfycbxo8Bk1BWaCGV8ASqSTpwjqYzzzark-mt--YhhHBXqm5Ws4CY7ja9vTv52uooKYRM78/exec'
-
   try {
-    // Usamos text/plain para evitar bloqueos de CORS en el navegador
     await fetch(SCRIPT_URL, {
       method: 'POST',
       headers: { 'Content-Type': 'text/plain;charset=utf-8' },
@@ -248,9 +233,8 @@ const descontarStockEnBackend = async () => {
         items: itemsConDetalle.value.map((item) => ({ id: item.id, cantidad: item.cant })),
       }),
     })
-    console.log('Petición de stock enviada a Google Sheets exitosamente.')
   } catch (error) {
-    console.error('Error al intentar descontar stock en Google Sheets:', error)
+    console.error('Error en Sheets:', error)
   }
 }
 </script>
@@ -268,7 +252,6 @@ const descontarStockEnBackend = async () => {
   padding: 30px 20px 80px 20px;
 }
 
-/* BOTÓN VOLVER (FLECHITA) */
 .btn-back {
   display: inline-flex;
   align-items: center;
@@ -287,11 +270,10 @@ const descontarStockEnBackend = async () => {
 }
 
 .btn-back:hover {
-  color: var(--accent, #ff0000);
+  color: var(--accent, #e52e2e);
   transform: translateX(-5px);
 }
 
-/* GRID PRINCIPAL */
 .checkout-grid {
   display: grid;
   grid-template-columns: 1.2fr 1fr;
@@ -335,10 +317,9 @@ const descontarStockEnBackend = async () => {
   margin: 5px 0;
 }
 
-/* BOTÓN CONFIRMAR */
 .btn-confirmar {
   width: 100%;
-  background: #009ee3; /* Color azul estilo pasarela, cámbialo a #ff0000 si prefieres rojo */
+  background: #e52e2e;
   color: #ffffff;
   border: none;
   padding: 16px;
@@ -346,13 +327,11 @@ const descontarStockEnBackend = async () => {
   font-weight: 800;
   font-size: 1rem;
   cursor: pointer;
-  transition:
-    background-color 0.2s ease,
-    transform 0.1s ease;
+  transition: background-color 0.2s ease;
 }
 
 .btn-confirmar:hover:not(:disabled) {
-  background: #0084bd;
+  background: #c22525;
 }
 
 .btn-confirmar:disabled {
@@ -360,18 +339,6 @@ const descontarStockEnBackend = async () => {
   cursor: not-allowed;
 }
 
-/* ERROR BANNER */
-.error-banner {
-  background: #fff0f0;
-  color: #d32f2f;
-  border: 1px solid #ffcdd2;
-  padding: 12px;
-  border-radius: 6px;
-  font-size: 0.9rem;
-  margin-bottom: 20px;
-}
-
-/* LISTA DE PRODUCTOS (CARRITO) */
 .empty-summary {
   text-align: center;
   color: var(--text-muted, #6a737d);
@@ -389,25 +356,12 @@ const descontarStockEnBackend = async () => {
   margin-top: 15px;
 }
 
-.items-list::-webkit-scrollbar {
-  width: 5px;
-}
-.items-list::-webkit-scrollbar-thumb {
-  background-color: var(--border, #d1d5da);
-  border-radius: 4px;
-}
-
 .summary-item {
   display: flex;
   align-items: center;
   gap: 14px;
   padding-bottom: 14px;
   border-bottom: 1px solid var(--border, #eef2f5);
-}
-
-.summary-item:last-child {
-  border-bottom: none;
-  padding-bottom: 0;
 }
 
 .item-img-wrapper {
@@ -440,7 +394,6 @@ const descontarStockEnBackend = async () => {
   font-weight: 700;
   margin: 0 0 6px 0;
   line-height: 1.3;
-  color: var(--text-main);
 }
 
 .item-meta {
@@ -458,10 +411,9 @@ const descontarStockEnBackend = async () => {
 .item-price {
   font-size: 0.9rem;
   font-weight: 800;
-  color: var(--accent, #ff0000);
+  color: var(--accent, #e52e2e);
 }
 
-/* DIVIDER Y TOTALES */
 .order-divider {
   border-top: 2px dashed var(--border, #d1d5da);
   margin: 20px 0;
@@ -476,12 +428,11 @@ const descontarStockEnBackend = async () => {
 }
 
 .total-amount {
-  color: var(--accent, #ff0000);
+  color: var(--accent, #e52e2e);
   font-size: 1.25rem;
   font-weight: 900;
 }
 
-/* TARJETAS DE ESTADO (ÉXITO / FALLO) */
 .status-card {
   text-align: center;
   background: var(--bg-panel, #ffffff);
@@ -517,11 +468,10 @@ const descontarStockEnBackend = async () => {
   font-weight: 800;
   font-size: 0.95rem;
   cursor: pointer;
-  transition: opacity 0.2s;
 }
 
 .btn-primary {
-  background: var(--accent, #ff0000);
+  background: var(--accent, #e52e2e);
   color: #ffffff;
 }
 
@@ -531,20 +481,9 @@ const descontarStockEnBackend = async () => {
   border: 1px solid var(--border, #d1d5da);
 }
 
-.btn-primary:hover,
-.btn-secondary:hover {
-  opacity: 0.9;
-}
-
 @media (max-width: 850px) {
   .checkout-grid {
     grid-template-columns: 1fr;
-  }
-  .payment-section {
-    order: 2;
-  }
-  .summary-section {
-    order: 1;
   }
 }
 </style>

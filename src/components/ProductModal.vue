@@ -10,14 +10,14 @@
         <!-- SECCIÓN DE GALERÍA DE IMÁGENES INTERACTIVA CON ZOOM -->
         <div class="modal-gallery">
           <!-- 1. VISTA PRINCIPAL GRANDE CON LUPA/ZOOM TIPO AMAZON -->
-          <div 
+          <div
             class="main-img-box"
             @mousemove="handleMouseMove"
             @mouseleave="handleMouseLeave"
           >
-            <img 
-              :src="imagenSeleccionada || 'https://via.placeholder.com/300'" 
-              class="modal-img-main" 
+            <img
+              :src="imagenSeleccionada || 'https://via.placeholder.com/300'"
+              class="modal-img-main"
               :style="zoomStyle"
             />
           </div>
@@ -91,7 +91,8 @@ const marketStore = useMarketStore()
 const cartStore = useCartStore()
 const router = useRouter()
 
-const producto = computed(() => marketStore.selectedProduct)
+// AQUÍ ESTABA EL ERROR: Cambiado a productoSeleccionado para coincidir con el store
+const producto = computed(() => marketStore.productoSeleccionado)
 
 // LÓGICA DE ZOOM INTERACTIVO TIPO AMAZON
 const isZoomed = ref(false)
@@ -225,27 +226,27 @@ const irARefacciones = () => {
 
 /* GALERÍA DE IMÁGENES CON ZOOM */
 .modal-gallery { flex: 1; min-width: 280px; max-width: 350px; display: flex; flex-direction: column; gap: 12px; align-self: flex-start; }
-.main-img-box { 
-  width: 100%; 
-  height: 320px; 
-  background: white; 
-  border-radius: 8px; 
-  padding: 10px; 
-  border: 1px solid var(--border); 
-  display: flex; 
-  align-items: center; 
-  justify-content: center; 
-  box-sizing: border-box; 
-  overflow: hidden; 
-  cursor: zoom-in; 
-  position: relative; 
+.main-img-box {
+  width: 100%;
+  height: 320px;
+  background: white;
+  border-radius: 8px;
+  padding: 10px;
+  border: 1px solid var(--border);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-sizing: border-box;
+  overflow: hidden;
+  cursor: zoom-in;
+  position: relative;
 }
-.modal-img-main { 
-  max-width: 100%; 
-  max-height: 100%; 
-  object-fit: contain; 
-  pointer-events: none; 
-  will-change: transform, transform-origin; 
+.modal-img-main {
+  max-width: 100%;
+  max-height: 100%;
+  object-fit: contain;
+  pointer-events: none;
+  will-change: transform, transform-origin;
 }
 
 .thumbnails-row { display: flex; gap: 10px; overflow-x: auto; padding-bottom: 4px; }
@@ -266,11 +267,11 @@ const irARefacciones = () => {
 .spec-item:last-child { border-bottom: none; }
 
 /* ETIQUETAS EN ROJO */
-.spec-item strong { 
-  color: var(--accent, #d32f2f); 
-  display: block; 
-  font-size: 11px; 
-  text-transform: uppercase; 
+.spec-item strong {
+  color: var(--accent, #d32f2f);
+  display: block;
+  font-size: 11px;
+  text-transform: uppercase;
   margin-bottom: 2px;
   font-weight: 800;
 }
@@ -283,22 +284,22 @@ const irARefacciones = () => {
 .modal-actions { margin-top: 15px; display: flex; flex-direction: column; gap: 10px; }
 
 /* BOTÓN PRINCIPAL CON HOVER PROTEGIDO */
-.btn-primary { 
-  background: var(--accent, #d32f2f); 
-  color: #ffffff !important; 
-  border: none; 
-  padding: 14px; 
-  border-radius: 6px; 
-  font-weight: bold; 
-  cursor: pointer; 
-  transition: background 0.2s ease, box-shadow 0.2s ease; 
-  font-size: 13px; 
-  letter-spacing: 0.5px; 
+.btn-primary {
+  background: var(--accent, #d32f2f);
+  color: #ffffff !important;
+  border: none;
+  padding: 14px;
+  border-radius: 6px;
+  font-weight: bold;
+  cursor: pointer;
+  transition: background 0.2s ease, box-shadow 0.2s ease;
+  font-size: 13px;
+  letter-spacing: 0.5px;
 }
-.btn-primary:hover { 
-  background: var(--accent-hover, #b71c1c) !important; 
-  color: #ffffff !important; 
-  box-shadow: 0 4px 12px rgba(211, 47, 47, 0.4); 
+.btn-primary:hover {
+  background: var(--accent-hover, #b71c1c) !important;
+  color: #ffffff !important;
+  box-shadow: 0 4px 12px rgba(211, 47, 47, 0.4);
 }
 
 .btn-secondary { background: var(--bg-input); color: var(--text-main); border: 1px solid var(--border); padding: 12px; border-radius: 6px; font-weight: bold; cursor: pointer; transition: 0.2s; font-size: 13px; }
