@@ -2,7 +2,7 @@ import { defineStore } from 'pinia'
 import { ref } from 'vue'
 import { fetchProductos, type Producto } from '@/api/inventory'
 import { db, auth } from '@/firebase'
-import { ref as dbRef, onValue, update, set, get } from 'firebase/database'
+import { ref as dbRef, update, set, get } from 'firebase/database'
 
 export type ProductoExtendido = Producto & {
   ID?: string | number
@@ -40,7 +40,7 @@ export const useMarketStore = defineStore('market', () => {
 
   let timerSincronizacion: number | null = null
 
-  // Cache persistente de los últimos valores leídos en Google Sheets
+  // Cache persistente para detectar ediciones en Google Sheets
   const ultimosStocksSheets = ref<Record<string, number>>(
     (() => {
       try {
@@ -249,74 +249,69 @@ export const useMarketStore = defineStore('market', () => {
     }
   }
 
+  // Carga productos mediante una lectura única (get) para evitar saturar el navegador
   const cargarProductos = async () => {
     cargando.value = true
     try {
-      const dataSheets = await fetchProductos()
+      const [dataSheets, snapshotFb] = await Promise.all([
+        fetchProductos(),
+        get(dbRef(db, 'inventario')),
+      ])
 
-      onValue(dbRef(db, 'inventario'), (snapshot) => {
-        const inventarioFb = snapshot.val() || {}
-        const actualizacionesNuevas: Record<string, number> = {}
-        const nuevoCacheSheets: Record<string, number> = { ...ultimosStocksSheets.value }
+      const inventarioFb = snapshotFb.val() || {}
+      const actualizacionesNuevas: Record<string, number> = {}
+      const nuevoCacheSheets: Record<string, number> = { ...ultimosStocksSheets.value }
 
-        const dataMezclada = dataSheets.map((prod) => {
-          const pExt = prod as ProductoExtendido
-          const rawKey = String(
-            pExt.id || pExt.ID || pExt.SKU || pExt['no. De parte'] || pExt.NO_DE_PARTE || '',
-          )
-            .trim()
-            .toLowerCase()
-          const key = rawKey.replace(/[.#$[\]]/g, '').replaceAll('/', '')
+      const dataMezclada = dataSheets.map((prod) => {
+        const pExt = prod as ProductoExtendido
+        const rawKey = String(
+          pExt.id || pExt.ID || pExt.SKU || pExt['no. De parte'] || pExt.NO_DE_PARTE || '',
+        )
+          .trim()
+          .toLowerCase()
+        const key = rawKey.replace(/[.#$[\]]/g, '').replaceAll('/', '')
 
-          if (!key) return prod
+        if (!key) return prod
 
-          const stockSheets = Number(pExt.Stock) || 0
-          const stockFbActual =
-            inventarioFb[key] !== undefined ? Number(inventarioFb[key]) : undefined
-          const previoSheets = ultimosStocksSheets.value[key]
+        const stockSheets = Number(pExt.Stock) || 0
+        const stockFbActual =
+          inventarioFb[key] !== undefined ? Number(inventarioFb[key]) : undefined
+        const previoSheets = ultimosStocksSheets.value[key]
 
-          let stockFinal = stockSheets
+        let stockFinal = stockSheets
 
-          // CASO 1: Se modificó la celda en Google Sheets respecto al último registro conocido
-          if (previoSheets !== undefined && previoSheets !== stockSheets) {
+        // CASO 1: Cambio detectado en Google Sheets respecto al último chequeo
+        if (previoSheets !== undefined && previoSheets !== stockSheets) {
+          actualizacionesNuevas[key] = stockSheets
+          stockFinal = stockSheets
+        }
+        // CASO 2: Primer chequeo de la sesión
+        else if (previoSheets === undefined) {
+          if (stockFbActual === undefined || stockFbActual > stockSheets) {
             actualizacionesNuevas[key] = stockSheets
             stockFinal = stockSheets
+          } else {
+            stockFinal = stockFbActual
           }
-          // CASO 2: Primer uso en el navegador
-          else if (previoSheets === undefined) {
-            if (stockFbActual === undefined) {
-              actualizacionesNuevas[key] = stockSheets
-              stockFinal = stockSheets
-            } else if (stockFbActual > stockSheets) {
-              // Si Firebase tiene un valor superior al asignado en Sheets (ej. FB=50, Sheets=20), fuerza la actualización
-              actualizacionesNuevas[key] = stockSheets
-              stockFinal = stockSheets
-            } else {
-              // Firebase tiene un valor menor o igual debido a compras en vivo
-              stockFinal = stockFbActual
-            }
-          }
-          // CASO 3: Sin cambios manuales en Sheets -> Mantiene el stock reactivo de Firebase
-          else {
-            stockFinal = stockFbActual !== undefined ? stockFbActual : stockSheets
-          }
-
-          nuevoCacheSheets[key] = stockSheets
-          return { ...prod, Stock: stockFinal }
-        })
-
-        // Guarda el estado del cache en LocalStorage
-        ultimosStocksSheets.value = nuevoCacheSheets
-        localStorage.setItem(SHEETS_CACHE_KEY, JSON.stringify(nuevoCacheSheets))
-
-        // Aplica los cambios hacia la base de datos de Firebase
-        if (Object.keys(actualizacionesNuevas).length > 0) {
-          update(dbRef(db, 'inventario'), actualizacionesNuevas)
+        }
+        // CASO 3: Sin cambios en Sheets -> Respeta las compras realizadas en Firebase
+        else {
+          stockFinal = stockFbActual !== undefined ? stockFbActual : stockSheets
         }
 
-        productos.value = dataMezclada
-        setCategories()
+        nuevoCacheSheets[key] = stockSheets
+        return { ...prod, Stock: stockFinal }
       })
+
+      ultimosStocksSheets.value = nuevoCacheSheets
+      localStorage.setItem(SHEETS_CACHE_KEY, JSON.stringify(nuevoCacheSheets))
+
+      if (Object.keys(actualizacionesNuevas).length > 0) {
+        await update(dbRef(db, 'inventario'), actualizacionesNuevas)
+      }
+
+      productos.value = dataMezclada
+      setCategories()
     } catch (error: unknown) {
       console.error('Error al cargar productos en el store:', error)
     } finally {
@@ -354,7 +349,7 @@ export const useMarketStore = defineStore('market', () => {
     }
   }
 
-  const iniciarSincronizacionAuto = (intervaloSegundos = 10) => {
+  const iniciarSincronizacionAuto = (intervaloSegundos = 15) => {
     cargarProductos()
 
     if (!timerSincronizacion) {
