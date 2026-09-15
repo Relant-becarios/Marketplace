@@ -3,6 +3,7 @@ import { ref, computed, watch } from 'vue'
 import { db, auth } from '@/firebase'
 import { ref as dbRef, set, get } from 'firebase/database'
 import { onAuthStateChanged } from 'firebase/auth'
+import { useMarketStore, type ProductoExtendido } from '@/stores/market'
 
 export interface ItemCarrito {
   id: string
@@ -11,11 +12,10 @@ export interface ItemCarrito {
 
 const STORAGE_KEY = 'relant_cart_items'
 
-// Convierte respuestas de Firebase (Objetos o Arreglos) a un Array JS seguro
 const normalizarCarrito = (val: unknown): ItemCarrito[] => {
   if (!val) return []
   if (Array.isArray(val)) {
-    return val.filter((item) => item && typeof item === 'object' && item.id)
+    return val.filter((item) => item && typeof item === 'object' && (item as ItemCarrito).id)
   }
   if (typeof val === 'object') {
     return Object.values(val as Record<string, ItemCarrito>).filter(
@@ -26,7 +26,6 @@ const normalizarCarrito = (val: unknown): ItemCarrito[] => {
 }
 
 export const useCartStore = defineStore('cart', () => {
-  // 1. Cargar datos desde localStorage inmediatamente al iniciar la app
   const items = ref<ItemCarrito[]>(
     (() => {
       try {
@@ -42,7 +41,6 @@ export const useCartStore = defineStore('cart', () => {
   const usuarioId = ref<string | null>(null)
   const cargandoSincronizacion = ref<boolean>(false)
 
-  // 2. Reactividad reactiva profunda: guarda en localStorage y Firebase ante cualquier cambio
   watch(
     items,
     async (nuevosItems) => {
@@ -59,7 +57,6 @@ export const useCartStore = defineStore('cart', () => {
     { deep: true },
   )
 
-  // 3. Sincronización multinube al iniciar sesión o recargar la página
   onAuthStateChanged(auth, async (user) => {
     if (user) {
       usuarioId.value = user.uid
@@ -70,7 +67,6 @@ export const useCartStore = defineStore('cart', () => {
         const carritoNube = normalizarCarrito(snapshot.val())
 
         if (carritoNube.length > 0) {
-          // Fusiona carrito local con la nube para evitar perder productos agregados sin sesión
           const mapa = new Map<string, number>()
 
           carritoNube.forEach((item) => mapa.set(item.id, item.cant))
@@ -95,30 +91,73 @@ export const useCartStore = defineStore('cart', () => {
     }
   })
 
-  // Getters
   const totalItems = computed(() => {
     return items.value.reduce((total, item) => total + item.cant, 0)
   })
 
-  // Acciones
-  function agregarProducto(idProducto: string) {
+  // Búsqueda global de stock si la vista no lo provee explícitamente
+  function obtenerStockReal(idProducto: string, stockParam?: number): number {
+    if (typeof stockParam === 'number' && stockParam >= 0) {
+      return stockParam
+    }
+
+    const marketStore = useMarketStore()
+    const targetKey = String(idProducto).trim().toLowerCase()
+
+    const productoEnVivo = marketStore.productos.find((p) => {
+      const pExt = p as ProductoExtendido
+      const key = String(
+        pExt.id || pExt.ID || pExt.SKU || pExt['no. De parte'] || pExt.NO_DE_PARTE || '',
+      )
+        .trim()
+        .toLowerCase()
+      return key === targetKey
+    })
+
+    if (productoEnVivo) {
+      const pExt = productoEnVivo as ProductoExtendido
+      const val = pExt.Stock
+      return typeof val === 'number' ? val : parseInt(String(val || 0), 10) || 0
+    }
+
+    return 99999 // Fallback si no está cargado el catálogo
+  }
+
+  function agregarProducto(idProducto: string, stockMaximo?: number, cantidadAgregar = 1) {
     if (!idProducto || idProducto === 'undefined') return
-    const existe = items.value.find((item) => item.id === idProducto)
+
+    const targetId = String(idProducto).trim()
+    const stockReal = obtenerStockReal(targetId, stockMaximo)
+
+    if (stockReal <= 0) return
+
+    const existe = items.value.find(
+      (item) => String(item.id).trim().toLowerCase() === targetId.toLowerCase(),
+    )
+
     if (existe) {
-      existe.cant++
+      const nuevaCantidad = existe.cant + cantidadAgregar
+      existe.cant = Math.min(nuevaCantidad, stockReal)
     } else {
-      items.value.push({ id: idProducto, cant: 1 })
+      items.value.push({
+        id: targetId,
+        cant: Math.min(cantidadAgregar, stockReal),
+      })
     }
   }
 
   function quitarProducto(idProducto: string) {
-    items.value = items.value.filter((item) => item.id !== idProducto)
+    const targetId = String(idProducto).trim().toLowerCase()
+    items.value = items.value.filter((item) => String(item.id).trim().toLowerCase() !== targetId)
   }
 
-  function actualizarCantidad(idProducto: string, nuevaCantidad: number) {
-    const item = items.value.find((item) => item.id === idProducto)
+  function actualizarCantidad(idProducto: string, nuevaCantidad: number, stockMaximo?: number) {
+    const targetId = String(idProducto).trim().toLowerCase()
+    const item = items.value.find((item) => String(item.id).trim().toLowerCase() === targetId)
+
     if (item && nuevaCantidad > 0) {
-      item.cant = nuevaCantidad
+      const stockReal = obtenerStockReal(targetId, stockMaximo)
+      item.cant = Math.min(nuevaCantidad, stockReal)
     }
   }
 

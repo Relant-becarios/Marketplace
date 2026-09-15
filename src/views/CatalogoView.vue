@@ -12,12 +12,12 @@
       <div class="marquee-track">
         <div
           v-for="(p, index) in productosCarrusel.slice(0, 15)"
-          :key="p?.id || p?.ID || index"
+          :key="getProductoKey(p, index)"
           class="m-item"
           @click="marketStore.openModal(p)"
         >
-          <img :src="p.Imagen_URL || p.imagen || 'https://via.placeholder.com/150'" />
-          <span>{{ p.Producto || 'Producto' }}</span>
+          <img :src="getImagenUrl(p)" :alt="getNombreProducto(p)" />
+          <span>{{ getNombreProducto(p) }}</span>
         </div>
       </div>
     </div>
@@ -28,8 +28,8 @@
       <div v-else class="grid">
         <ProductCard
           v-for="(producto, index) in productos"
-          :key="producto?.id || producto?.ID || index"
-          :producto="producto"
+          :key="getProductoKey(producto, index)"
+          :producto="normalizarProducto(producto)"
         />
         <div v-if="productos.length === 0" style="grid-column: 1 / -1; text-align: center">
           No se encontraron productos en la categoría o búsqueda seleccionada.
@@ -42,46 +42,86 @@
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted } from 'vue'
-import { fetchProductos, type Producto } from '@/api/inventory'
-import { useMarketStore } from '@/stores/market'
+import { computed, onMounted } from 'vue'
+import type { Producto } from '@/api/inventory'
+import { useMarketStore, type ProductoExtendido } from '@/stores/market'
 import ProductCard from '@/components/ProductCard.vue'
 import ProductModal from '@/components/ProductModal.vue'
 import NavBar from '@/components/NavBar.vue'
 
-const productos = ref<Producto[]>([]) // Para la cuadrícula filtrada
-const productosCarrusel = ref<Producto[]>([]) // Colección global e inmutable para el carrusel
-const cargando = ref(true)
 const marketStore = useMarketStore()
 
 defineEmits(['toggle-cart'])
 
-const cargarProductosDesdeAPI = async () => {
-  cargando.value = true
-  try {
-    const data = await fetchProductos(marketStore.searchQuery, marketStore.selectedCategory)
-    productos.value = data // Solo actualiza la cuadrícula de productos
-  } catch (error) {
-    console.error(error)
-  } finally {
-    cargando.value = false
+const cargando = computed(() => marketStore.cargando)
+
+// Colección global e inmutable para el carrusel
+const productosCarrusel = computed(() => marketStore.productos)
+
+// Extrae de forma segura la URL de la imagen sin importar el nombre de la columna en Sheets
+const getImagenUrl = (p: Producto): string => {
+  const pExt = p as ProductoExtendido
+  const img =
+    pExt.Imagen_URL ||
+    pExt.Imagen ||
+    pExt.imagen ||
+    pExt.IMAGEN ||
+    pExt.Foto ||
+    pExt.URL ||
+    pExt.url
+  if (typeof img === 'string' && img.trim() !== '') {
+    return img.trim()
   }
+  return 'https://via.placeholder.com/150'
+}
+
+// Asegura que ProductCard reciba todas las variantes posibles de propiedades de imagen
+const normalizarProducto = (p: Producto): Producto => {
+  const imgUrl = getImagenUrl(p)
+  return {
+    ...p,
+    Imagen_URL: imgUrl,
+    Imagen: imgUrl,
+    imagen: imgUrl,
+  } as Producto
+}
+
+// Cuadrícula filtrada reactiva
+const productos = computed(() => {
+  return marketStore.productos.filter((p) => {
+    const pExt = p as ProductoExtendido
+    const busqueda = (marketStore.searchQuery || '').toLowerCase().trim()
+    const categoria = marketStore.selectedCategory || ''
+
+    const nombre = String(pExt.Producto || pExt.Descripcion || pExt.descripcion || '').toLowerCase()
+    const sku = String(
+      pExt.id || pExt.ID || pExt.SKU || pExt['no. De parte'] || pExt.NO_DE_PARTE || '',
+    ).toLowerCase()
+    const catProducto = String(pExt.Categoria || pExt.CATEGORIA || '')
+
+    const coincideBusqueda = !busqueda || nombre.includes(busqueda) || sku.includes(busqueda)
+    const coincideCategoria = !categoria || categoria === 'Todas' || catProducto === categoria
+
+    return coincideBusqueda && coincideCategoria
+  })
+})
+
+const getProductoKey = (p: Producto, index: number): string | number => {
+  const pExt = p as ProductoExtendido
+  return pExt.id || pExt.ID || pExt.SKU || index
+}
+
+const getNombreProducto = (p: Producto): string => {
+  const pExt = p as ProductoExtendido
+  return String(pExt.Producto || pExt.Descripcion || pExt.descripcion || 'Producto')
+}
+
+const cargarProductosDesdeAPI = () => {
+  // La lista filtrada se recalcula automáticamente por la propiedad computada
 }
 
 onMounted(async () => {
-  cargando.value = true
-  try {
-    const todosLosProductos = await fetchProductos()
-    productosCarrusel.value = todosLosProductos // Conserva el catálogo completo para el carrusel
-    productos.value = todosLosProductos
-
-    const cats = [...new Set(todosLosProductos.map((p) => p.Categoria).filter(Boolean))] as string[]
-    marketStore.setCategories(cats)
-  } catch (error) {
-    console.error(error)
-  } finally {
-    cargando.value = false
-  }
+  await marketStore.cargarProductos()
 })
 </script>
 

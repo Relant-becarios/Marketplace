@@ -51,11 +51,10 @@
                   <span class="order-id">Orden #{{ orden.id }}</span>
                   <span class="order-date">{{ orden.fecha || 'Fecha reciente' }}</span>
                 </div>
-                <!-- MONEDA USD -->
                 <span class="order-total">${{ Number(orden.total || 0).toFixed(2) }} USD</span>
               </div>
 
-              <!-- TRACKER CON ÍCONOS Y LÍNEAS SOLIDADS / PUNTEADAS -->
+              <!-- TRACKER CON ÍCONOS -->
               <div class="stepper-container">
                 <!-- Paso 1: En preparación -->
                 <div :class="['step-item', { active: obtenerNivelStep(orden.estado) >= 1 }]">
@@ -173,16 +172,20 @@
           <div v-else class="products-grid">
             <div
               v-for="fav in favoritesStore.favoritos"
-              :key="String(fav.id || fav.SKU || fav.Producto)"
+              :key="obtenerSkuProducto(fav)"
               class="prod-card"
             >
-              <img
-                :src="fav.Imagen_URL || 'https://via.placeholder.com/150'"
-                :alt="fav.Producto || 'Producto'"
-              />
-              <h4>{{ fav.Producto }}</h4>
+              <img :src="obtenerImagenProducto(fav)" :alt="fav.Producto || 'Producto'" />
+              <h4>{{ fav.Producto || (fav as ProductoExtendido).Descripcion }}</h4>
               <p class="price">${{ Number(fav.Precio || 0).toFixed(2) }} USD</p>
-              <button class="btn-action" @click="agregarAlCarrito(fav)">Añadir al carrito</button>
+
+              <button
+                class="btn-action"
+                :disabled="obtenerStockProducto(fav) <= 0"
+                @click="agregarAlCarrito(fav)"
+              >
+                {{ obtenerStockProducto(fav) <= 0 ? 'Agotado' : 'Añadir al carrito' }}
+              </button>
             </div>
           </div>
         </div>
@@ -196,14 +199,11 @@
           <div v-else class="products-grid">
             <div
               v-for="prod in vistosRecientemente"
-              :key="String(prod.id || prod.SKU || prod.Producto)"
+              :key="obtenerSkuProducto(prod)"
               class="prod-card"
             >
-              <img
-                :src="prod.Imagen_URL || 'https://via.placeholder.com/150'"
-                :alt="prod.Producto || 'Producto'"
-              />
-              <h4>{{ prod.Producto }}</h4>
+              <img :src="obtenerImagenProducto(prod)" :alt="prod.Producto || 'Producto'" />
+              <h4>{{ prod.Producto || (prod as ProductoExtendido).Descripcion }}</h4>
               <p class="price">${{ Number(prod.Precio || 0).toFixed(2) }} USD</p>
 
               <button class="btn-action" @click="volverAVer(prod)">Volver a ver</button>
@@ -227,7 +227,7 @@ import { useAuthStore } from '@/stores/auth'
 import { useUiStore } from '@/stores/ui'
 import { useCartStore } from '@/stores/cart'
 import { useFavoritesStore } from '@/stores/favorites'
-import { useMarketStore } from '@/stores/market'
+import { useMarketStore, type ProductoExtendido } from '@/stores/market'
 import type { Producto } from '@/api/inventory'
 import { db } from '@/firebase'
 import { ref as dbRef, get } from 'firebase/database'
@@ -257,7 +257,6 @@ const cartStore = useCartStore()
 const favoritesStore = useFavoritesStore()
 const marketStore = useMarketStore()
 
-// Variable string directa para prevenir errores de inferencia en TypeScript
 const tabActiva = ref<string>('pedidos')
 const pedidos = ref<Orden[]>([])
 const vistosRecientemente = ref<ProductoHistorial[]>([])
@@ -274,7 +273,7 @@ const cambiarTab = (tab: string) => {
   }
 }
 
-const obtenerNivelStep = (estado: string = '') => {
+const obtenerNivelStep = (estado = '') => {
   const st = estado.toLowerCase()
   if (st.includes('entregado') || st.includes('delivered')) return 4
   if (
@@ -288,9 +287,59 @@ const obtenerNivelStep = (estado: string = '') => {
   return 1
 }
 
+const obtenerSkuProducto = (prod: Producto): string => {
+  const pExt = prod as ProductoExtendido
+  return String(
+    pExt.id ||
+      pExt.ID ||
+      pExt.SKU ||
+      pExt['no. De parte'] ||
+      pExt.NO_DE_PARTE ||
+      pExt.Producto ||
+      '',
+  ).trim()
+}
+
+const obtenerStockProducto = (prod: Producto): number => {
+  const pExt = prod as ProductoExtendido
+  const sku = obtenerSkuProducto(prod).toLowerCase()
+
+  const prodEnVivo = marketStore.productos.find((p) => {
+    const pE = p as ProductoExtendido
+    const pSku = String(
+      pE.id || pE.ID || pE.SKU || pE['no. De parte'] || pE.NO_DE_PARTE || pE.Producto || '',
+    )
+      .trim()
+      .toLowerCase()
+    return pSku === sku
+  })
+
+  const stockRaw = prodEnVivo?.Stock ?? pExt.Stock
+  return typeof stockRaw === 'number' ? stockRaw : parseInt(String(stockRaw || 0), 10) || 0
+}
+
+const obtenerImagenProducto = (prod: Producto): string => {
+  const pExt = prod as ProductoExtendido
+  const img =
+    pExt.Imagen_URL ||
+    pExt.Imagen ||
+    pExt.imagen ||
+    pExt.IMAGEN ||
+    pExt.Foto ||
+    pExt.URL ||
+    pExt.url
+  return typeof img === 'string' && img.trim() !== ''
+    ? img.trim()
+    : 'https://via.placeholder.com/150'
+}
+
 const agregarAlCarrito = (prod: Producto) => {
-  const prodId = String(prod.id || prod.SKU || prod.Producto)
-  cartStore.agregarProducto(prodId)
+  const sku = obtenerSkuProducto(prod)
+  const stock = obtenerStockProducto(prod)
+
+  if (stock <= 0) return
+
+  cartStore.agregarProducto(sku, stock, 1)
   uiStore.toggleCart()
 }
 
@@ -304,6 +353,10 @@ const cargarDatos = async () => {
   const uid = authStore.usuarioActual.uid
 
   try {
+    if (marketStore.productos.length === 0) {
+      await marketStore.cargarProductos()
+    }
+
     const snapPedidos = await get(dbRef(db, `ordenes/${uid}`))
     if (snapPedidos.exists()) {
       const rawPedidos = Object.values(snapPedidos.val()) as Orden[]
@@ -319,7 +372,7 @@ const cargarDatos = async () => {
     } else {
       vistosRecientemente.value = []
     }
-  } catch (e) {
+  } catch (e: unknown) {
     console.error('Error al cargar datos del perfil desde Firebase:', e)
   }
 }
@@ -463,7 +516,6 @@ onMounted(() => {
   font-size: 1.15rem;
 }
 
-/* TRACKER ESTILO EXACTO A LA IMAGEN */
 .stepper-container {
   display: flex;
   align-items: center;
@@ -509,7 +561,6 @@ onMounted(() => {
   color: #e52e2e;
 }
 
-/* LÍNEAS DE CONEXIÓN ENTRE CÍRCULOS */
 .step-line {
   flex: 1;
   height: 6px;
@@ -598,8 +649,13 @@ onMounted(() => {
   transition: background 0.2s ease;
 }
 
-.btn-action:hover {
+.btn-action:hover:not(:disabled) {
   background: #c22525;
+}
+
+.btn-action:disabled {
+  background: #94a3b8;
+  cursor: not-allowed;
 }
 
 .login-prompt {

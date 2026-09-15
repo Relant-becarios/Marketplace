@@ -23,9 +23,9 @@
                 <input
                   type="number"
                   min="1"
-                  :max="item.stock > 0 ? item.stock : 1"
+                  :max="item.stock"
                   :value="item.cant"
-                  @change="
+                  @input="
                     (e) =>
                       validarYActualizarCantidad(
                         item.id,
@@ -111,11 +111,29 @@ const productosDetalle = ref<Producto[]>([])
 const TIPO_CAMBIO_MXN = 20.0
 const TASA_IVA = 0.16
 
+type ProductoExtendido = Producto & {
+  ID?: string | number
+  SKU?: string | number
+  'no. De parte'?: string | number
+  NO_DE_PARTE?: string | number
+  Stock?: string | number
+  Imagen_URL?: string
+  Imagen?: string
+  imagen?: string
+  IMAGEN?: string
+  Foto?: string
+  URL?: string
+  url?: string
+  Producto?: string
+  Descripcion?: string
+  descripcion?: string
+}
+
 const cargarCatalogo = async () => {
   try {
     const data = await fetchProductos()
     productosDetalle.value = data
-  } catch (error) {
+  } catch (error: unknown) {
     console.error('Error cargando detalles en carrito:', error)
   }
 }
@@ -140,16 +158,17 @@ const itemsConDetalle = computed(() => {
       .toLowerCase()
 
     const prod = productosDetalle.value.find((p) => {
-      const pId = String(p.id || '')
+      const pExt = p as ProductoExtendido
+      const pId = String(pExt.id || '')
         .trim()
         .toLowerCase()
-      const pID = String(p.ID || '')
+      const pID = String(pExt.ID || '')
         .trim()
         .toLowerCase()
-      const pSku = String(p.sku || '')
+      const pSku = String(pExt.SKU || pExt['no. De parte'] || pExt.NO_DE_PARTE || '')
         .trim()
         .toLowerCase()
-      const pNombre = String(p.Producto || p.nombre || '')
+      const pNombre = String(pExt.Producto || pExt.Descripcion || pExt.descripcion || '')
         .trim()
         .toLowerCase()
 
@@ -161,14 +180,29 @@ const itemsConDetalle = computed(() => {
       )
     })
 
+    const pExt = prod as ProductoExtendido | undefined
+
     const precioNumerico =
-      typeof prod?.Precio === 'number' ? prod.Precio : parseFloat(String(prod?.Precio || 0)) || 0
+      typeof pExt?.Precio === 'number' ? pExt.Precio : parseFloat(String(pExt?.Precio || 0)) || 0
 
     const stockNumerico =
-      typeof prod?.Stock === 'number' ? prod.Stock : parseInt(String(prod?.Stock || 0)) || 0
+      typeof pExt?.Stock === 'number' ? pExt.Stock : parseInt(String(pExt?.Stock || 0), 10) || 0
 
     const nombreProducto =
-      prod?.Producto || (item.id !== 'undefined' ? item.id : 'Producto sin título')
+      pExt?.Producto ||
+      pExt?.Descripcion ||
+      pExt?.descripcion ||
+      (item.id !== 'undefined' ? item.id : 'Producto sin título')
+
+    const imgUrl =
+      pExt?.Imagen_URL ||
+      pExt?.Imagen ||
+      pExt?.imagen ||
+      pExt?.IMAGEN ||
+      pExt?.Foto ||
+      pExt?.URL ||
+      pExt?.url ||
+      'https://via.placeholder.com/60'
 
     return {
       id: item.id,
@@ -176,15 +210,11 @@ const itemsConDetalle = computed(() => {
       nombre: nombreProducto,
       precio: precioNumerico,
       stock: stockNumerico,
-      imagen:
-        prod?.Imagen_URL ||
-        prod?.imagen ||
-        `https://via.placeholder.com/60?text=${encodeURIComponent(nombreProducto)}`,
+      imagen: imgUrl,
     }
   })
 })
 
-// VALIDA QUE LA CANTIDAD NO SUPERE EL STOCK DISPONIBLE
 const validarYActualizarCantidad = (id: string, nuevaCant: number, stockMaximo: number) => {
   if (isNaN(nuevaCant) || nuevaCant < 1) {
     cartStore.actualizarCantidad(id, 1)
@@ -192,7 +222,6 @@ const validarYActualizarCantidad = (id: string, nuevaCant: number, stockMaximo: 
   }
 
   if (stockMaximo > 0 && nuevaCant > stockMaximo) {
-    alert(`Solo hay ${stockMaximo} unidades disponibles en stock para este producto.`)
     cartStore.actualizarCantidad(id, stockMaximo)
     return
   }

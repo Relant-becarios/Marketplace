@@ -1,261 +1,284 @@
 <template>
-  <div class="product-card" @click="openModal">
-    <!-- BOTÓN DE FAVORITOS ELEGANTE -->
+  <div class="product-card" @click="marketStore.openModal(producto)">
     <button
-      class="btn-fav"
-      :class="{ active: isFav }"
-      @click.stop="handleToggleFav"
-      :title="isFav ? 'Quitar de favoritos' : 'Añadir a favoritos'"
+      class="fav-btn"
+      :class="{ 'is-active': esFavorito }"
+      @click.stop="toggleFavorito"
+      title="Agregar a favoritos"
     >
-      <svg class="heart-icon" viewBox="0 0 24 24">
+      <svg
+        viewBox="0 0 24 24"
+        width="18"
+        height="18"
+        :fill="esFavorito ? '#ff0000' : 'none'"
+        :stroke="esFavorito ? '#ff0000' : '#64748b'"
+        stroke-width="2"
+      >
         <path
           d="M12 21.35l-1.45-1.32C5.4 15.36 2 12.28 2 8.5 2 5.42 4.42 3 7.5 3c1.74 0 3.41.81 4.5 2.09C13.09 3.81 14.76 3 16.5 3 19.58 3 22 5.42 22 8.5c0 3.78-3.4 6.86-8.55 11.54L12 21.35z"
         />
       </svg>
     </button>
 
-    <div class="img-wrapper">
-      <img
-        :src="producto.Imagen_URL || 'https://via.placeholder.com/200'"
-        :alt="producto.Producto"
-      />
+    <div class="img-container">
+      <img v-if="imagenUrl" :src="imagenUrl" :alt="nombreProducto" @error="handleImageError" />
+      <div v-else class="image-fallback">
+        <span>SKU: {{ skuProducto }}</span>
+      </div>
     </div>
 
     <div class="card-body">
-      <span class="category-badge">{{ producto.Categoría || 'General' }}</span>
-      <h3 class="product-title">{{ producto.Producto }}</h3>
+      <span class="category">{{ categoriaProducto }}</span>
+      <h3 class="title">{{ nombreProducto }}</h3>
+      <p class="sku">SKU: {{ skuProducto }}</p>
 
-      <p class="sku-text">
-        SKU:
-        {{
-          producto.SKU ||
-          producto.id ||
-          producto['no_ De parte'] ||
-          producto['NO. DE PARTE'] ||
-          'N/A'
-        }}
-      </p>
       <div class="card-footer">
-        <span class="price">${{ Number(producto.Precio || 0).toFixed(2) }} USD</span>
-        <button class="btn-cart-add" @click.stop="agregarAlCarrito">Añadir</button>
+        <span class="price">${{ precioFormatted }} USD</span>
+        <button class="add-btn" :disabled="stockNumerico <= 0" @click.stop="handleAgregar">
+          {{ stockNumerico <= 0 ? 'Agotado' : 'Añadir' }}
+        </button>
       </div>
     </div>
   </div>
 </template>
 
 <script setup lang="ts">
-import { computed } from 'vue'
+import { ref, computed } from 'vue'
 import type { Producto } from '@/api/inventory'
-import { useMarketStore } from '@/stores/market'
 import { useCartStore } from '@/stores/cart'
+import { useMarketStore, type ProductoExtendido } from '@/stores/market'
 import { useFavoritesStore } from '@/stores/favorites'
-import { useAuthStore } from '@/stores/auth'
-import { useUiStore } from '@/stores/ui'
 
 const props = defineProps<{
   producto: Producto
 }>()
 
-const marketStore = useMarketStore()
 const cartStore = useCartStore()
+const marketStore = useMarketStore()
 const favoritesStore = useFavoritesStore()
-const authStore = useAuthStore()
-const uiStore = useUiStore()
 
-const isFav = computed(() => favoritesStore.esFavorito(props.producto))
+const imageError = ref(false)
 
-const handleToggleFav = () => {
-  if (!authStore.usuarioActual) {
-    uiStore.toggleAuthModal()
-    return
+const pExt = computed(() => props.producto as ProductoExtendido)
+
+const skuProducto = computed(() => {
+  return String(
+    pExt.value.id ||
+      pExt.value.ID ||
+      pExt.value.SKU ||
+      pExt.value['no. De parte'] ||
+      pExt.value.NO_DE_PARTE ||
+      '',
+  ).trim()
+})
+
+// Evalúa si el SKU actual existe dentro de la lista global de favoritos
+const esFavorito = computed(() => {
+  const currentSku = skuProducto.value.toLowerCase()
+  if (!currentSku) return false
+
+  return favoritesStore.favoritos.some((f) => {
+    const fExt = f as ProductoExtendido
+    const fSku = String(
+      fExt.id || fExt.ID || fExt.SKU || fExt['no. De parte'] || fExt.NO_DE_PARTE || '',
+    )
+      .trim()
+      .toLowerCase()
+    return fSku === currentSku
+  })
+})
+
+const stockNumerico = computed(() => {
+  const val = pExt.value.Stock
+  return typeof val === 'number' ? val : parseInt(String(val || 0), 10) || 0
+})
+
+const nombreProducto = computed(() => {
+  return String(
+    pExt.value.Producto ||
+      pExt.value.Descripcion ||
+      pExt.value.descripcion ||
+      'Producto sin título',
+  )
+})
+
+const categoriaProducto = computed(() => {
+  return String(pExt.value.Categoria || pExt.value.CATEGORIA || 'GENERAL').toUpperCase()
+})
+
+const imagenUrl = computed(() => {
+  if (imageError.value) return ''
+  const img =
+    pExt.value.Imagen_URL ||
+    pExt.value.Imagen ||
+    pExt.value.imagen ||
+    pExt.value.IMAGEN ||
+    pExt.value.Foto ||
+    pExt.value.URL ||
+    pExt.value.url
+  return typeof img === 'string' && img.trim() !== '' ? img.trim() : ''
+})
+
+const precioFormatted = computed(() => {
+  const p = pExt.value.Precio
+  const num = typeof p === 'number' ? p : parseFloat(String(p || 0)) || 0
+  return num.toFixed(2)
+})
+
+const toggleFavorito = async () => {
+  await favoritesStore.toggleFavorito(props.producto)
+}
+
+const handleImageError = () => {
+  imageError.value = true
+}
+
+const handleAgregar = () => {
+  if (stockNumerico.value > 0 && skuProducto.value) {
+    cartStore.agregarProducto(skuProducto.value, stockNumerico.value, 1)
   }
-  favoritesStore.toggleFavorito(props.producto)
-}
-
-const openModal = () => {
-  marketStore.openModal(props.producto)
-}
-
-const agregarAlCarrito = () => {
-  const idProducto = String(props.producto.id || props.producto.SKU || props.producto.Producto)
-  cartStore.agregarProducto(idProducto)
-  uiStore.toggleCart()
 }
 </script>
 
 <style scoped>
 .product-card {
-  background: var(--bg-panel, #ffffff);
-  border: 1px solid var(--border, #d1d5da);
-  border-radius: 12px;
-  padding: 16px;
   position: relative;
+  background: #ffffff;
+  border-radius: 12px;
+  padding: 1rem;
+  border: 1px solid #e2e8f0;
   display: flex;
   flex-direction: column;
   justify-content: space-between;
   cursor: pointer;
   transition:
-    transform 0.25s ease,
-    box-shadow 0.25s ease;
+    transform 0.2s,
+    box-shadow 0.2s;
 }
 
 .product-card:hover {
-  transform: translateY(-4px);
-  box-shadow: 0 10px 25px rgba(0, 0, 0, 0.1);
+  transform: translateY(-2px);
+  box-shadow: 0 8px 16px rgba(0, 0, 0, 0.06);
 }
 
-/* BOTÓN DE FAVORITOS ESTILIZADO */
-.btn-fav {
+.fav-btn {
   position: absolute;
   top: 12px;
   right: 12px;
-  width: 36px;
-  height: 36px;
-  border-radius: 50%;
   background: rgba(255, 255, 255, 0.85);
   backdrop-filter: blur(8px);
-  border: 1px solid var(--border, #e2e8f0);
+  -webkit-backdrop-filter: blur(8px);
+  border: 1px solid rgba(226, 232, 240, 0.8);
+  border-radius: 50%;
+  width: 34px;
+  height: 34px;
   display: flex;
   align-items: center;
   justify-content: center;
   cursor: pointer;
-  z-index: 5;
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.08);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.06);
   transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
-  padding: 0;
+  z-index: 2;
 }
 
-.btn-fav:hover {
-  transform: scale(1.1);
-  background: #ffffff;
-  box-shadow: 0 6px 16px rgba(0, 0, 0, 0.15);
+.fav-btn:hover {
+  transform: scale(1.08);
+  background: rgba(255, 255, 255, 0.95);
+  box-shadow: 0 6px 16px rgba(0, 0, 0, 0.1);
 }
 
-.heart-icon {
-  width: 18px;
-  height: 18px;
-  fill: none;
-  stroke: #718096;
-  stroke-width: 2;
-  transition: all 0.25s ease;
-}
-
-.btn-fav:hover .heart-icon {
-  stroke: #ff0000;
-}
-
-.btn-fav.active {
-  background: rgba(255, 235, 235, 0.95);
+.fav-btn.is-active {
+  background: rgba(255, 255, 255, 0.95);
   border-color: rgba(255, 0, 0, 0.25);
-  box-shadow: 0 4px 14px rgba(255, 0, 0, 0.25);
-  animation: heartPop 0.3s ease-out;
+  box-shadow: 0 0 16px rgba(255, 0, 0, 0.35);
 }
 
-.btn-fav.active .heart-icon {
-  fill: #ff0000;
-  stroke: #ff0000;
-}
-
-@keyframes heartPop {
-  0% {
-    transform: scale(1);
-  }
-  50% {
-    transform: scale(1.22);
-  }
-  100% {
-    transform: scale(1);
-  }
-}
-
-/* SOPORTE PARA MODO OSCURO */
-:global([data-theme='dark']) .btn-fav {
-  background: rgba(24, 27, 31, 0.85);
-  border-color: #30363d;
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.4);
-}
-
-:global([data-theme='dark']) .btn-fav:hover {
-  background: #22262b;
-}
-
-:global([data-theme='dark']) .heart-icon {
-  stroke: #a0a6ac;
-}
-
-:global([data-theme='dark']) .btn-fav.active {
-  background: rgba(255, 0, 0, 0.18);
-  border-color: rgba(255, 0, 0, 0.4);
-}
-
-.img-wrapper {
+.img-container {
+  height: 150px;
   width: 100%;
-  height: 160px;
   display: flex;
   align-items: center;
   justify-content: center;
-  background: #ffffff;
-  border-radius: 8px;
-  overflow: hidden;
-  margin-bottom: 12px;
+  margin-bottom: 0.8rem;
 }
 
-.img-wrapper img {
-  max-width: 100%;
+.img-container img {
   max-height: 100%;
+  max-width: 100%;
   object-fit: contain;
 }
 
-.category-badge {
-  font-size: 11px;
+.image-fallback {
+  width: 100%;
+  height: 100%;
+  background-color: #f8fafc;
+  border-radius: 8px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #94a3b8;
+  font-size: 0.8rem;
+  font-weight: 600;
+}
+
+.category {
+  font-size: 0.75rem;
   font-weight: 800;
   color: #ff0000;
+}
+
+.title {
+  font-size: 0.9rem;
+  font-weight: 800;
+  color: #0f172a;
+  margin: 0.3rem 0;
   text-transform: uppercase;
-  letter-spacing: 0.5px;
 }
 
-.product-title {
-  font-size: 14px;
-  font-weight: 700;
-  margin: 6px 0 4px 0;
-  line-height: 1.3;
-  color: var(--text-main);
-}
-
-.sku-text {
-  font-size: 11px;
-  color: var(--text-muted, #6a737d);
-  margin-bottom: 12px;
+.sku {
+  font-size: 0.8rem;
+  color: #64748b;
+  margin-bottom: 0.8rem;
 }
 
 .card-footer {
   display: flex;
-  align-items: center;
   justify-content: space-between;
+  align-items: center;
   margin-top: auto;
 }
 
 .price {
-  font-size: 16px;
+  font-size: 1.1rem;
   font-weight: 900;
   color: #ff0000;
 }
 
-.btn-cart-add {
-  background: var(--bg-input, #eef2f5);
-  color: var(--text-main);
-  border: 1px solid var(--border, #d1d5da);
-  padding: 6px 14px;
-  border-radius: 16px;
-  font-weight: 700;
-  font-size: 12px;
+.add-btn {
+  background: #ffffff;
+  color: #0f172a;
+  border: 1px solid #e2e8f0;
+  padding: 0.5rem 1rem;
+  border-radius: 999px;
+  font-weight: 800;
+  font-size: 0.85rem;
   cursor: pointer;
   transition: all 0.2s ease;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05);
 }
 
-.btn-cart-add:hover {
+.add-btn:hover:not(:disabled) {
   background: #ff0000;
   color: #ffffff;
   border-color: #ff0000;
+  box-shadow: 0 4px 10px rgba(255, 0, 0, 0.25);
+}
+
+.add-btn:disabled {
+  background: #f1f5f9;
+  color: #94a3b8;
+  border-color: #e2e8f0;
+  cursor: not-allowed;
+  box-shadow: none;
 }
 </style>
