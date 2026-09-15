@@ -20,9 +20,10 @@
 </template>
 
 <script setup lang="ts">
-import { onMounted } from 'vue'
+import { onMounted, onUnmounted } from 'vue'
 import { RouterView } from 'vue-router'
 import { useUiStore } from '@/stores/ui'
+import { useMarketStore } from '@/stores/market'
 import CartPanel from '@/components/CartPanel.vue'
 import MenuPanel from '@/components/MenuPanel.vue'
 import AuthModal from '@/components/AuthModal.vue'
@@ -30,10 +31,18 @@ import ChatPanel from '@/components/ChatPanel.vue'
 import ThemeToggleFloating from '@/components/ThemeToggleFloating.vue'
 
 const uiStore = useUiStore()
+const marketStore = useMarketStore()
 
 onMounted(() => {
   const tema = localStorage.getItem('theme') || 'light'
   document.documentElement.setAttribute('data-theme', tema)
+
+  // Inicia la sincronización automática en segundo plano (cada 10 segundos)
+  marketStore.iniciarSincronizacionAuto(10)
+})
+
+onUnmounted(() => {
+  marketStore.detenerSincronizacionAuto()
 })
 </script>
 

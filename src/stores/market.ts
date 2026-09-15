@@ -30,6 +30,7 @@ export type ItemCarrito = ProductoExtendido & {
 }
 
 const HISTORIAL_KEY = 'relant_historial_navegacion'
+const SHEETS_CACHE_KEY = 'relant_sheets_stock_cache'
 
 export const useMarketStore = defineStore('market', () => {
   const productos = ref<Producto[]>([])
@@ -37,7 +38,20 @@ export const useMarketStore = defineStore('market', () => {
   const productoSeleccionado = ref<Producto | null>(null)
   const isModalOpen = ref(false)
 
-  // Historial con persistencia local inmediata
+  let timerSincronizacion: number | null = null
+
+  // Cache persistente de los últimos valores leídos en Google Sheets
+  const ultimosStocksSheets = ref<Record<string, number>>(
+    (() => {
+      try {
+        const guardado = localStorage.getItem(SHEETS_CACHE_KEY)
+        return guardado ? JSON.parse(guardado) : {}
+      } catch {
+        return {}
+      }
+    })(),
+  )
+
   const historial = ref<ProductoExtendido[]>(
     (() => {
       try {
@@ -93,7 +107,6 @@ export const useMarketStore = defineStore('market', () => {
       vistoEn: Date.now(),
     }
 
-    // Actualiza el estado reactivo e impide duplicados (último visto primero)
     const filtrados = historial.value.filter((item) => {
       const itemKey = String(
         item.id ||
@@ -114,7 +127,6 @@ export const useMarketStore = defineStore('market', () => {
     historial.value = [itemConFecha, ...filtrados].slice(0, 20)
     localStorage.setItem(HISTORIAL_KEY, JSON.stringify(historial.value))
 
-    // Guarda en Firebase si hay un usuario autenticado
     if (auth.currentUser) {
       try {
         await set(dbRef(db, `historial/${auth.currentUser.uid}/${key}`), itemConFecha)
@@ -131,7 +143,6 @@ export const useMarketStore = defineStore('market', () => {
       if (snap.exists()) {
         const itemsNube = Object.values(snap.val()) as ProductoExtendido[]
 
-        // Fusión local y nube
         const mapa = new Map<string, ProductoExtendido>()
         itemsNube.concat(historial.value).forEach((item) => {
           const k = String(
@@ -246,6 +257,7 @@ export const useMarketStore = defineStore('market', () => {
       onValue(dbRef(db, 'inventario'), (snapshot) => {
         const inventarioFb = snapshot.val() || {}
         const actualizacionesNuevas: Record<string, number> = {}
+        const nuevoCacheSheets: Record<string, number> = { ...ultimosStocksSheets.value }
 
         const dataMezclada = dataSheets.map((prod) => {
           const pExt = prod as ProductoExtendido
@@ -258,15 +270,46 @@ export const useMarketStore = defineStore('market', () => {
 
           if (!key) return prod
 
-          if (inventarioFb[key] !== undefined) {
-            return { ...prod, Stock: inventarioFb[key] }
-          } else {
-            const stockInicial = Number(pExt.Stock) || 0
-            actualizacionesNuevas[key] = stockInicial
-            return { ...prod, Stock: stockInicial }
+          const stockSheets = Number(pExt.Stock) || 0
+          const stockFbActual =
+            inventarioFb[key] !== undefined ? Number(inventarioFb[key]) : undefined
+          const previoSheets = ultimosStocksSheets.value[key]
+
+          let stockFinal = stockSheets
+
+          // CASO 1: Se modificó la celda en Google Sheets respecto al último registro conocido
+          if (previoSheets !== undefined && previoSheets !== stockSheets) {
+            actualizacionesNuevas[key] = stockSheets
+            stockFinal = stockSheets
           }
+          // CASO 2: Primer uso en el navegador
+          else if (previoSheets === undefined) {
+            if (stockFbActual === undefined) {
+              actualizacionesNuevas[key] = stockSheets
+              stockFinal = stockSheets
+            } else if (stockFbActual > stockSheets) {
+              // Si Firebase tiene un valor superior al asignado en Sheets (ej. FB=50, Sheets=20), fuerza la actualización
+              actualizacionesNuevas[key] = stockSheets
+              stockFinal = stockSheets
+            } else {
+              // Firebase tiene un valor menor o igual debido a compras en vivo
+              stockFinal = stockFbActual
+            }
+          }
+          // CASO 3: Sin cambios manuales en Sheets -> Mantiene el stock reactivo de Firebase
+          else {
+            stockFinal = stockFbActual !== undefined ? stockFbActual : stockSheets
+          }
+
+          nuevoCacheSheets[key] = stockSheets
+          return { ...prod, Stock: stockFinal }
         })
 
+        // Guarda el estado del cache en LocalStorage
+        ultimosStocksSheets.value = nuevoCacheSheets
+        localStorage.setItem(SHEETS_CACHE_KEY, JSON.stringify(nuevoCacheSheets))
+
+        // Aplica los cambios hacia la base de datos de Firebase
         if (Object.keys(actualizacionesNuevas).length > 0) {
           update(dbRef(db, 'inventario'), actualizacionesNuevas)
         }
@@ -278,6 +321,53 @@ export const useMarketStore = defineStore('market', () => {
       console.error('Error al cargar productos en el store:', error)
     } finally {
       cargando.value = false
+    }
+  }
+
+  const descontarStockFirebase = async (items: { idSku: string; cantidad: number }[]) => {
+    const updates: Record<string, number> = {}
+
+    items.forEach((item) => {
+      const key = String(item.idSku)
+        .trim()
+        .toLowerCase()
+        .replace(/[.#$[\]]/g, '')
+        .replaceAll('/', '')
+
+      const prodActual = productos.value.find((p) => {
+        const pE = p as ProductoExtendido
+        const pSku = String(pE.id || pE.ID || pE.SKU || pE['no. De parte'] || pE.NO_DE_PARTE || '')
+          .trim()
+          .toLowerCase()
+          .replace(/[.#$[\]]/g, '')
+          .replaceAll('/', '')
+        return pSku === key
+      })
+
+      const stockActual = Number((prodActual as ProductoExtendido)?.Stock) || 0
+      const nuevoStock = Math.max(0, stockActual - item.cantidad)
+      updates[key] = nuevoStock
+    })
+
+    if (Object.keys(updates).length > 0) {
+      await update(dbRef(db, 'inventario'), updates)
+    }
+  }
+
+  const iniciarSincronizacionAuto = (intervaloSegundos = 10) => {
+    cargarProductos()
+
+    if (!timerSincronizacion) {
+      timerSincronizacion = window.setInterval(() => {
+        cargarProductos()
+      }, intervaloSegundos * 1000)
+    }
+  }
+
+  const detenerSincronizacionAuto = () => {
+    if (timerSincronizacion) {
+      clearInterval(timerSincronizacion)
+      timerSincronizacion = null
     }
   }
 
@@ -293,6 +383,9 @@ export const useMarketStore = defineStore('market', () => {
     categorias,
     setCategories,
     cargarProductos,
+    descontarStockFirebase,
+    iniciarSincronizacionAuto,
+    detenerSincronizacionAuto,
     cargarHistorialFirebase,
     agregarAlCarrito,
     actualizarCantidadCarrito,
