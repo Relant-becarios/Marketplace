@@ -9,4 +9,7 @@ export default defineConfig({
       '@': fileURLToPath(new URL('./src', import.meta.url)),
     },
   },
+  build: {
+    sourcemap: false, // Deshabilita la generación de mapas de código fuente en producción
+  },
 })
