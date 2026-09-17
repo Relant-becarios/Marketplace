@@ -33,16 +33,37 @@ import ThemeToggleFloating from '@/components/ThemeToggleFloating.vue'
 const uiStore = useUiStore()
 const marketStore = useMarketStore()
 
+// Funciones para bloquear la apertura de DevTools
+const prevenirContextMenu = (e: MouseEvent) => e.preventDefault()
+
+const prevenirDevToolsKey = (e: KeyboardEvent) => {
+  if (
+    e.key === 'F12' ||
+    (e.ctrlKey && e.shiftKey && ['I', 'J', 'C'].includes(e.key.toUpperCase())) ||
+    (e.ctrlKey && e.key.toUpperCase() === 'U')
+  ) {
+    e.preventDefault()
+  }
+}
+
 onMounted(() => {
   const tema = localStorage.getItem('theme') || 'light'
   document.documentElement.setAttribute('data-theme', tema)
 
   // Inicia la sincronización automática en segundo plano (cada 60 segundos)
   marketStore.iniciarSincronizacionAuto(60)
+
+  // Bloqueo de clic derecho y atajos de teclado
+  document.addEventListener('contextmenu', prevenirContextMenu)
+  document.addEventListener('keydown', prevenirDevToolsKey)
 })
 
 onUnmounted(() => {
   marketStore.detenerSincronizacionAuto()
+
+  // Limpieza de eventos
+  document.removeEventListener('contextmenu', prevenirContextMenu)
+  document.removeEventListener('keydown', prevenirDevToolsKey)
 })
 </script>
 
