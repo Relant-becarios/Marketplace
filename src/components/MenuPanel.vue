@@ -9,7 +9,7 @@
       <div class="menu-body">
         <div class="menu-items-list">
           <button class="menu-item ai-item" @click="abrirChat">
-            <span class="icon">✨</span>
+            <img src="/Estrella icono (1).png" alt="Asistente IA" class="icon-img" />
             <span class="label-text">Asistente IA</span>
           </button>
 
@@ -65,7 +65,6 @@ const abrirChat = () => {
   visibility: visible;
 }
 
-/* Alineación hacia el lateral derecho */
 .menu-panel {
   position: fixed;
   top: 0;
@@ -152,6 +151,7 @@ const abrirChat = () => {
   cursor: pointer;
   text-align: left;
   transition: all 0.2s ease;
+  box-sizing: border-box;
 }
 
 .menu-item:hover {
@@ -169,8 +169,24 @@ const abrirChat = () => {
   background: rgba(229, 46, 46, 0.15);
 }
 
+/* Control estricto del tamaño de la imagen */
+.menu-item img.icon-img,
+.icon-img {
+  width: 24px !important;
+  height: 24px !important;
+  max-width: 24px !important;
+  max-height: 24px !important;
+  object-fit: contain;
+  flex-shrink: 0;
+  display: block;
+}
+
 .icon {
   font-size: 1.2rem;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
 }
 
 .label-text {
