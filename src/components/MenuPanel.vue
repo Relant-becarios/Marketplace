@@ -1,129 +1,179 @@
 <template>
-  <div v-if="uiStore.isMenuOpen" class="menu-overlay" @click="uiStore.toggleMenu">
-    <div class="menu-drawer" @click.stop>
+  <div class="menu-panel-overlay" :class="{ open: uiStore.isMenuOpen }" @click="uiStore.closeAll">
+    <aside class="menu-panel" :class="{ open: uiStore.isMenuOpen }" @click.stop>
       <div class="menu-header">
-        <h3>Menú</h3>
-        <span class="close-btn" @click="uiStore.toggleMenu">✕</span>
+        <h3 class="menu-title">Menú</h3>
+        <button class="btn-close" @click="uiStore.closeAll" title="Cerrar menú">✕</button>
       </div>
 
-      <ul class="menu-list">
-        <!-- ÍTEM DE LA IA CON ICONO DE ESTRELLA PERSONALIZADO -->
-        <li class="menu-item ai-item" @click="abrirAsistenteAI">
-          <img src="/Estrella icono (1).png" class="menu-icon-img" alt="Asistente IA" />
-          <span>Asistente IA</span>
-        </li>
+      <div class="menu-body">
+        <div class="menu-items-list">
+          <button class="menu-item ai-item" @click="abrirChat">
+            <span class="icon">✨</span>
+            <span class="label-text">Asistente IA</span>
+          </button>
 
-        <!-- CATÁLOGO DE PRODUCTOS -->
-        <li class="menu-item" @click="navegarA('/catalogo')">
-          <span class="icon">📦</span>
-          <span>Catálogo de Productos</span>
-        </li>
+          <button class="menu-item" @click="navegarA('/calculadora')">
+            <span class="icon">🧮</span>
+            <span class="label-text">Calculadora de Dosificación</span>
+          </button>
 
-        <!-- CALCULADORA DE DOSIFICACIÓN -->
-        <li class="menu-item" @click="navegarA('/calculadora')">
-          <span class="icon">🧮</span>
-          <span>Calculadora de Dosificación</span>
-        </li>
-
-        <!-- VISOR STL 3D -->
-        <li class="menu-item" @click="navegarA('/visor-3d')">
-          <span class="icon">🧊</span>
-          <span>Visor STL 3D</span>
-        </li>
-      </ul>
-    </div>
+          <button class="menu-item" @click="navegarA('/visor-3d')">
+            <span class="icon">🧊</span>
+            <span class="label-text">Visor STL 3D</span>
+          </button>
+        </div>
+      </div>
+    </aside>
   </div>
 </template>
 
 <script setup lang="ts">
-import { useUiStore } from '@/stores/ui'
 import { useRouter } from 'vue-router'
+import { useUiStore } from '@/stores/ui'
 
-const uiStore = useUiStore()
 const router = useRouter()
-
-const abrirAsistenteAI = () => {
-  uiStore.toggleMenu()
-  uiStore.toggleChat()
-}
+const uiStore = useUiStore()
 
 const navegarA = (ruta: string) => {
-  uiStore.toggleMenu()
+  uiStore.closeAll()
   router.push(ruta)
+}
+
+const abrirChat = () => {
+  uiStore.closeAll()
+  uiStore.toggleChat()
 }
 </script>
 
 <style scoped>
-.menu-overlay {
+.menu-panel-overlay {
   position: fixed;
   top: 0;
   left: 0;
   width: 100vw;
   height: 100vh;
-  background: rgba(0, 0, 0, 0.6);
-  z-index: 25000;
-  display: flex;
-  justify-content: flex-end;
-}
-.menu-drawer {
-  background: var(--bg-panel, #ffffff);
-  width: 280px;
-  height: 100%;
-  padding: 20px;
-  box-sizing: border-box;
-  color: var(--text-main);
-}
-.menu-header {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  border-bottom: 1px solid var(--border);
-  padding-bottom: 15px;
-  margin-bottom: 15px;
-}
-.close-btn {
-  cursor: pointer;
-  font-size: 18px;
+  background: rgba(0, 0, 0, 0.7);
+  opacity: 0;
+  visibility: hidden;
+  transition: all 0.3s ease;
+  z-index: 30000;
 }
 
-.menu-list {
-  list-style: none;
-  padding: 0;
-  margin: 0;
+.menu-panel-overlay.open {
+  opacity: 1;
+  visibility: visible;
+}
+
+/* Alineación hacia el lateral derecho */
+.menu-panel {
+  position: fixed;
+  top: 0;
+  right: -320px;
+  width: 100%;
+  max-width: 300px;
+  height: 100vh;
+  background: var(--bg-panel, #ffffff);
+  border-left: 1px solid var(--border, #d1d5da);
+  color: var(--text-main, #1c1e21);
   display: flex;
   flex-direction: column;
-  gap: 10px;
+  transition: right 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+  box-shadow: -10px 0 30px rgba(0, 0, 0, 0.3);
 }
+
+.menu-panel.open {
+  right: 0;
+}
+
+.menu-header {
+  position: relative;
+  padding: 16px 20px;
+  border-bottom: 1px solid var(--border, #d1d5da);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.menu-title {
+  margin: 0;
+  font-size: 1.7rem;
+  font-weight: 800;
+  text-align: center;
+  color: var(--text-main, #1c1e21);
+}
+
+.btn-close {
+  position: absolute;
+  right: 18px;
+  top: 10px;
+  background: transparent;
+  border: none;
+  color: #ff0000;
+  font-size: 1.6rem;
+  font-weight: 900;
+  cursor: pointer;
+  padding: 0;
+  line-height: 1;
+  transition:
+    transform 0.2s ease,
+    color 0.2s ease;
+}
+
+.btn-close:hover {
+  color: #cc0000;
+  transform: scale(1.15);
+}
+
+.menu-body {
+  flex: 1;
+  padding: 20px 16px;
+  overflow-y: auto;
+}
+
+.menu-items-list {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
 .menu-item {
   display: flex;
   align-items: center;
   gap: 12px;
-  padding: 12px 15px;
-  border-radius: 8px;
-  cursor: pointer;
-  font-weight: 700;
+  width: 100%;
+  padding: 12px 14px;
+  background: var(--bg-input, #f8f9fa);
+  border: 1px solid var(--border, #e2e8f0);
+  border-radius: 10px;
+  color: var(--text-main, #1c1e21);
   font-size: 0.95rem;
-  background: var(--bg-input);
-  transition: background 0.2s ease;
+  font-weight: 700;
+  cursor: pointer;
+  text-align: left;
+  transition: all 0.2s ease;
 }
+
 .menu-item:hover {
-  background: var(--border);
+  border-color: var(--border, #cbd5e1);
+  transform: translateY(-1px);
 }
 
-.ai-item {
-  background: rgba(255, 0, 0, 0.08);
+.menu-item.ai-item {
+  background: rgba(229, 46, 46, 0.08);
+  border-color: rgba(229, 46, 46, 0.3);
   color: #ff0000;
-  border: 1px solid rgba(255, 0, 0, 0.2);
-}
-.ai-item:hover {
-  background: #ff0000;
-  color: #ffffff;
 }
 
-/* ESTILO PARA LA IMAGEN DEL ICONO DE LA IA */
-.menu-icon-img {
-  width: 20px;
-  height: 20px;
-  object-fit: contain;
+.menu-item.ai-item:hover {
+  background: rgba(229, 46, 46, 0.15);
+}
+
+.icon {
+  font-size: 1.2rem;
+}
+
+.label-text {
+  line-height: 1.2;
 }
 </style>

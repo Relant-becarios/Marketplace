@@ -144,6 +144,7 @@ onMounted(async () => {
   background-size: cover;
   background-position: center;
 }
+
 .hero-title-main {
   font-size: 60px;
   font-weight: 900;
@@ -153,6 +154,7 @@ onMounted(async () => {
   filter: drop-shadow(0 0 10px var(--accent));
   text-transform: uppercase;
 }
+
 .hero-subtitle {
   color: white;
   letter-spacing: 3px;
